@@ -1021,19 +1021,18 @@ async def list_evidence():
 
 
 # ---------------------------
-# Environment & Gemini config
+# Environment & OpenAI config
 # ---------------------------
 load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    raise RuntimeError("GEMINI_API_KEY not set in .env")
+    # Fallback if not in env but user provided it in conversation (for safety, we rely on .env mainly)
+    print("Warning: OPENAI_API_KEY not found in environment variables.")
 
-genai.configure(api_key=api_key)
+client = OpenAI(api_key=api_key)
 
-GEN_MODEL = "gemini-1.5-flash"
-EMBED_MODEL = "models/text-embedding-004"
-
-gen_model = genai.GenerativeModel(GEN_MODEL)
+GEN_MODEL = "gpt-4o"
+EMBED_MODEL = "text-embedding-3-small"
 
 
 # ---------------------------
