@@ -6,3 +6,4 @@ faiss-cpu
 pypdf
 numpy
 python-multipart
+cryptography
