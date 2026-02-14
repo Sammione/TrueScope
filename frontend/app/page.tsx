@@ -1,0 +1,643 @@
+"use client";
+
+import React, { useState, useRef, useEffect } from "react";
+import {
+  ShieldCheck,
+  BarChart3,
+  Search,
+  UploadCloud,
+  Zap,
+  MessageSquare,
+  FileText,
+  Activity,
+  AlertTriangle,
+  ChevronRight,
+  RefreshCw,
+  Plus,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  TrendingDown,
+  Globe,
+  Leaf
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+import axios from "axios";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
+} from "recharts";
+
+// --- Utilities ---
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+// --- Components ---
+
+const SidebarItem = ({ icon: Icon, label, active, onClick }: any) => (
+  <button
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-300 group relative overflow-hidden",
+      active
+        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+        : "text-slate-500 hover:text-slate-200 hover:bg-white/5"
+    )}
+  >
+    <div className={cn("absolute inset-0 bg-gradient-to-r from-emerald-500/0 via-emerald-500/5 to-emerald-500/0 translate-x-[-100%] transition-transform duration-1000", active && "group-hover:translate-x-[100%]")} />
+    <Icon className={cn("w-5 h-5 transition-transform group-hover:scale-110", active && "text-emerald-400")} />
+    <span className="text-sm font-medium font-outfit relative z-10">{label}</span>
+    {active && (
+      <motion.div
+        layoutId="sidebar-accent"
+        className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_#10b981]"
+      />
+    )}
+  </button>
+);
+
+const BentoCard = ({ children, title, className, icon: Icon, delay = 0, loading = false }: any) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.5, delay }}
+    className={cn("glass rounded-[2.5rem] p-6 lg:p-8 glass-hover flex flex-col gap-4 relative overflow-hidden", className)}
+  >
+    {loading && (
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm z-20 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+      </div>
+    )}
+    <div className="flex items-center justify-between z-10">
+      <div className="flex items-center gap-3">
+        {Icon && (
+          <div className="p-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 shadow-[0_0_15px_-5px_#10b981]">
+            <Icon className="w-5 h-5" />
+          </div>
+        )}
+        <h3 className="text-sm font-bold font-outfit uppercase tracking-widest text-slate-400">{title}</h3>
+      </div>
+    </div>
+    <div className="flex-1 z-10 relative">
+      {children}
+    </div>
+    {/* Ambient Glow */}
+    <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-emerald-500/5 blur-[80px] rounded-full pointer-events-none" />
+  </motion.div>
+);
+
+const RiskGauge = ({ score }: { score: string }) => {
+  // Map score to percentage for the gauge
+  const getPercentage = (s: string) => {
+    switch (s?.toLowerCase()) {
+      case "low": return 25;
+      case "medium": return 50;
+      case "high": return 85;
+      default: return 0;
+    }
+  };
+
+  const pct = getPercentage(score);
+  const color = pct > 75 ? "#f43f5e" : pct > 40 ? "#fbbf24" : "#10b981"; // Red, Amber, Emerald
+  const radius = 70;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (pct / 100) * circumference;
+
+  return (
+    <div className="relative w-40 h-40 flex items-center justify-center">
+      <svg className="w-full h-full -rotate-90">
+        <circle cx="80" cy="80" r={radius} className="fill-none stroke-white/5 stroke-[12]" />
+        <motion.circle
+          cx="80" cy="80" r={radius}
+          className="fill-none stroke-[12] drop-shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+          style={{ stroke: color }}
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center">
+        <motion.span
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-3xl font-black font-outfit"
+          style={{ color }}
+        >
+          {score || "N/A"}
+        </motion.span>
+        <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500">Risk Level</span>
+      </div>
+    </div>
+  );
+};
+
+// --- Chat Component ---
+
+const ChatView = ({ reportId }: { reportId: string | null }) => {
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string, citations?: any[] }[]>([
+    { role: "assistant", content: "Hello! I've analyzed the report. Ask me anything about specific emissions, targets, or potential greenwashing risks." }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || !reportId) return;
+    const userMsg = input;
+    setInput("");
+    setMessages(prev => [...prev, { role: "user", content: userMsg }]);
+    setLoading(true);
+
+    try {
+      const res = await axios.post("http://localhost:8000/api/query", {
+        question: userMsg,
+        report_ids: [reportId]
+      });
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: res.data.answer,
+        citations: res.data.citations
+      }]);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: "assistant", content: "I encountered an error trying to answer that. Please check the backend connection." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[80vh] glass rounded-[2.5rem] overflow-hidden relative">
+      <div className="flex-1 overflow-y-auto p-6 space-y-6" ref={scrollRef}>
+        {messages.map((msg, i) => (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            key={i}
+            className={cn("flex gap-4 max-w-3xl", msg.role === "user" ? "ml-auto flex-row-reverse" : "")}
+          >
+            <div className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+              msg.role === "assistant" ? "bg-emerald-500 text-black" : "bg-white/10 text-white"
+            )}>
+              {msg.role === "assistant" ? <Zap className="w-4 h-4" /> : <div className="w-2 h-2 rounded-full bg-white" />}
+            </div>
+            <div className={cn(
+              "p-4 rounded-2xl text-sm leading-relaxed",
+              msg.role === "assistant" ? "bg-white/5 border border-white/5 text-slate-200" : "bg-emerald-500 text-black font-medium"
+            )}>
+              {msg.content}
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
+                  <p className="text-[10px] uppercase tracking-widest font-bold opacity-50">Sources</p>
+                  {msg.citations.map((c: any, ci: number) => (
+                    <div key={ci} className="text-[10px] p-2 rounded bg-black/20 text-slate-400 font-mono">
+                      Page {c.page}: "...{c.snippet.slice(0, 100)}..."
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ))}
+        {loading && (
+          <div className="flex gap-4">
+            <div className="w-8 h-8 rounded-full bg-emerald-500 text-black flex items-center justify-center shrink-0">
+              <Loader2 className="w-4 h-4 animate-spin" />
+            </div>
+            <div className="p-4 rounded-2xl bg-white/5 border border-white/5 text-slate-400 text-sm italic">
+              Analyzing report context...
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="p-4 border-t border-white/5 bg-black/20 backdrop-blur-md">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            placeholder="Ask about specific claims, data, or contradictions..."
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 transition-all font-outfit"
+          />
+          <button
+            onClick={sendMessage}
+            disabled={loading || !input.trim()}
+            className="px-4 py-2 bg-emerald-500 text-black rounded-xl hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// --- Main Page ---
+
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [file, setFile] = useState<File | null>(null);
+  const [reportId, setReportId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisData, setAnalysisData] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile) return;
+    executeUpload(selectedFile);
+  };
+
+  const executeUpload = async (fileToUpload: File) => {
+    setFile(fileToUpload);
+    setIsUploading(true);
+    setAnalysisData(null);
+
+    const formData = new FormData();
+    formData.append("files", fileToUpload);
+
+    try {
+      // 1. Upload Report
+      const uploadRes = await axios.post("http://localhost:8000/api/reports", formData);
+      const reports = uploadRes.data.reports;
+      // Get the ID of the last report in the list, assuming it's the one we just uploaded
+      const newReportId = reports[reports.length - 1].id;
+      setReportId(newReportId);
+      setIsUploading(false);
+      setIsAnalyzing(true);
+
+      // 2. Run Analysis in Parallel
+      const [riskRes, metricsRes, complianceRes] = await Promise.all([
+        axios.post("http://localhost:8000/api/risk", { report_id: newReportId }),
+        axios.post("http://localhost:8000/api/metrics", { report_id: newReportId }),
+        axios.post("http://localhost:8000/api/compliance", { report_id: newReportId })
+      ]);
+
+      setAnalysisData({
+        risk: riskRes.data,
+        metrics: metricsRes.data.metrics,
+        compliance: complianceRes.data.compliance
+      });
+
+    } catch (error) {
+      console.error("Error analyzing report:", error);
+      alert("Analysis failed. Please check the backend connection.");
+      setFile(null); // Reset
+    } finally {
+      setIsAnalyzing(false);
+      setActiveTab("dashboard");
+    }
+  };
+
+  const loadSampleReport = async () => {
+    setIsUploading(true);
+    try {
+      const res = await axios.post("http://localhost:8000/api/sample-report");
+      const reports = res.data.reports;
+      const newReportId = reports[reports.length - 1].id;
+      setReportId(newReportId);
+      setFile({ name: "Sample Report (Demo)" } as File);
+      setIsUploading(false);
+      setIsAnalyzing(true);
+
+      const [riskRes, metricsRes, complianceRes] = await Promise.all([
+        axios.post("http://localhost:8000/api/risk", { report_id: newReportId }),
+        axios.post("http://localhost:8000/api/metrics", { report_id: newReportId }),
+        axios.post("http://localhost:8000/api/compliance", { report_id: newReportId })
+      ]);
+
+      setAnalysisData({
+        risk: riskRes.data,
+        metrics: metricsRes.data.metrics,
+        compliance: complianceRes.data.compliance
+      });
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load sample report.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const triggerUpload = () => fileInputRef.current?.click();
+
+  // Prepare chart data safely
+  const metricsChartData = analysisData?.metrics?.emissions ? [
+    { name: "Scope 1", value: analysisData.metrics.emissions.scope1_tco2e || 0 },
+    { name: "Scope 2", value: analysisData.metrics.emissions.scope2_tco2e || 0 },
+    { name: "Scope 3", value: analysisData.metrics.emissions.scope3_tco2e || 0 },
+  ] : [];
+
+  return (
+    <div className="flex min-h-screen bg-[#050505] text-white selection:bg-emerald-500/30 overflow-hidden">
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/20 via-[#050505] to-black pointer-events-none" />
+
+      {/* Sidebar */}
+      <aside className="w-80 h-screen sticky top-0 hidden md:flex flex-col gap-8 p-8 border-r border-white/5 bg-black/20 backdrop-blur-xl z-50">
+        <div className="flex items-center gap-3 px-2">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+            <ShieldCheck className="text-black w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold font-outfit leading-tight">TrueScope</h1>
+            <p className="text-[10px] text-emerald-500 font-bold tracking-widest uppercase">AI Verifier</p>
+          </div>
+        </div>
+
+        <nav className="space-y-2 flex-1">
+          <SidebarItem
+            icon={Activity}
+            label="Dashboard"
+            active={activeTab === "dashboard"}
+            onClick={() => setActiveTab("dashboard")}
+          />
+          <SidebarItem
+            icon={MessageSquare}
+            label="Ask AI"
+            active={activeTab === "chat"}
+            onClick={() => setActiveTab("chat")}
+          />
+          <SidebarItem
+            icon={Search}
+            label="Deep Dive"
+            active={activeTab === "claims"}
+            onClick={() => setActiveTab("claims")}
+          />
+          <SidebarItem
+            icon={BarChart3}
+            label="Metrics & Data"
+            active={activeTab === "metrics"}
+            onClick={() => setActiveTab("metrics")}
+          />
+          <SidebarItem
+            icon={FileText}
+            label="Reports"
+            active={activeTab === "reports"}
+            onClick={() => setActiveTab("reports")}
+          />
+        </nav>
+
+        <div className="glass rounded-3xl p-6 space-y-4 relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+          <div className="flex items-center gap-2 relative z-10">
+            <Zap className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-bold font-outfit">Pro Analytics</span>
+          </div>
+          <p className="text-[11px] text-slate-500 leading-relaxed font-medium relative z-10">
+            Unlock deep auditing and external truth-mapping today.
+          </p>
+          <button className="w-full py-3 rounded-2xl bg-emerald-500 text-black text-xs font-black uppercase tracking-wider hover:bg-emerald-400 transition-all relative z-10 shadow-lg shadow-emerald-500/20">
+            Upgrade Now
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 p-6 md:p-12 lg:p-16 flex flex-col gap-12 max-w-7xl mx-auto relative z-10">
+        <AnimatePresence mode="wait">
+          {!analysisData && !isAnalyzing ? (
+            // --- Hero / Upload View ---
+            <motion.div
+              key="upload"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.05 }}
+              className="flex-1 flex flex-col items-center justify-center min-h-[60vh] text-center"
+            >
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="mb-8 space-y-4"
+              >
+                <h1 className="text-5xl md:text-7xl font-black font-outfit tracking-tighter bg-gradient-to-b from-white to-white/40 bg-clip-text text-transparent">
+                  Detect Greenwashing<br />
+                  <span className="text-emerald-500">Instantly.</span>
+                </h1>
+                <p className="text-slate-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+                  Upload your ESG report and let our AI analyze claims against global standards (GRI, SASB) to reveal the truth behind the numbers.
+                </p>
+              </motion.div>
+
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={triggerUpload}
+                className="w-full max-w-xl h-64 border-2 border-dashed border-white/10 rounded-[2.5rem] bg-white/[0.02] hover:bg-white/[0.04] hover:border-emerald-500/50 transition-all cursor-pointer flex flex-col items-center justify-center gap-4 group relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-emerald-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl" />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  accept=".pdf,.txt"
+                />
+                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center group-hover:bg-emerald-500/20 group-hover:text-emerald-400 transition-colors">
+                  {isUploading ? (
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                  ) : (
+                    <UploadCloud className="w-8 h-8" />
+                  )}
+                </div>
+                <div className="relative z-10">
+                  <p className="font-bold text-lg">Click to Upload Report</p>
+                  <p className="text-sm text-slate-500">Support for PDF & TXT</p>
+                </div>
+              </motion.div>
+
+              <motion.button
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                onClick={loadSampleReport}
+                className="mt-6 text-sm text-emerald-500 font-bold hover:text-emerald-400 transition-colors flex items-center gap-2 px-4 py-2 rounded-full hover:bg-emerald-500/10 cursor-pointer z-20"
+              >
+                <Zap className="w-4 h-4" />
+                No file? Try with a Sample Report
+              </motion.button>
+            </motion.div>
+          ) : isAnalyzing ? (
+            // --- Loading State ---
+            <motion.div
+              key="analyzing"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center gap-8"
+            >
+              <div className="relative w-24 h-24">
+                <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+                <div className="absolute inset-0 rounded-full border-4 border-t-emerald-500 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Zap className="w-8 h-8 text-emerald-500 animate-pulse" />
+                </div>
+              </div>
+              <div className="text-center space-y-2">
+                <h2 className="text-2xl font-bold font-outfit">Analyzing Report Data...</h2>
+                <p className="text-slate-400">Checking Scope 1, 2, 3 • Verifying GRI Alignment • Detecting Anomalies</p>
+              </div>
+            </motion.div>
+          ) : (
+            // --- Dashboard / Chat View Swapper ---
+            activeTab === "chat" ? (
+              <motion.div
+                key="chat"
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="w-full"
+              >
+                <ChatView reportId={reportId} />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="dashboard"
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="flex flex-col gap-8 w-full"
+              >
+                {/* Header */}
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] uppercase font-black tracking-[0.3em] text-emerald-500">
+                        Analysis Complete
+                      </span>
+                      <div className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400">
+                        {file?.name}
+                      </div>
+                    </div>
+                    <h2 className="text-4xl md:text-5xl font-black font-outfit tracking-tighter">Executive Summary</h2>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setAnalysisData(null)} className="flex items-center gap-2 px-6 py-3.5 rounded-full glass border-white/10 text-slate-300 text-sm font-bold hover:bg-white/10 transition-all">
+                      <RefreshCw className="w-4 h-4" />
+                      New Analysis
+                    </button>
+                    <button className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
+                      <FileText className="w-4 h-4" />
+                      Export PDF
+                    </button>
+                  </div>
+                </header>
+
+                {/* Bento Grid */}
+                <section className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-4 gap-6">
+
+                  {/* Risk Gauge */}
+                  <BentoCard title="Greenwashing Risk" className="md:col-span-3 lg:col-span-1" icon={AlertTriangle} delay={0.1}>
+                    <div className="flex flex-col items-center justify-center h-full gap-4">
+                      <RiskGauge score={analysisData.risk.score} />
+                      <p className="text-[11px] text-center text-slate-500 leading-relaxed font-medium px-4">
+                        {analysisData.risk.explanation.slice(0, 100)}...
+                      </p>
+                    </div>
+                  </BentoCard>
+
+                  {/* Emissions Chart */}
+                  <BentoCard title="Emissions Profile (tCO2e)" className="md:col-span-3 lg:col-span-2" icon={Leaf} delay={0.2}>
+                    <div className="h-48 w-full mt-4">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={metricsChartData}>
+                          <XAxis
+                            dataKey="name"
+                            axisLine={false}
+                            tickLine={false}
+                            tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }}
+                            dy={10}
+                          />
+                          <Tooltip
+                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                            contentStyle={{ backgroundColor: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                          />
+                          <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                            {metricsChartData.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={index === 0 ? '#34d399' : index === 1 ? '#10b981' : '#059669'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </BentoCard>
+
+                  {/* Compliance Checklist */}
+                  <BentoCard title="Framework Alignment" className="md:col-span-6 lg:col-span-1" icon={Globe} delay={0.3}>
+                    <div className="space-y-4 pt-2">
+                      {[
+                        { label: "GRI Standards", status: analysisData.compliance.gri?.covered },
+                        { label: "SASB", status: analysisData.compliance.sasb?.covered },
+                        { label: "IFRS S1 / S2", status: analysisData.compliance.ifrs_s1?.covered || analysisData.compliance.ifrs_s2?.covered },
+                        { label: "SDG Goals", status: analysisData.compliance.sdgs?.covered },
+                      ].map((item, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5">
+                          <span className="text-xs font-bold text-slate-300">{item.label}</span>
+                          {item.status ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-rose-400" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </BentoCard>
+
+                  {/* AI Insights / Key Metrics */}
+                  <BentoCard title="Key Metrics Extracted" className="md:col-span-6 lg:col-span-4" icon={Activity} delay={0.4}>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {[
+                        { label: "Energy (MWh)", value: analysisData.metrics.energy?.total_mwh || "N/A" },
+                        { label: "Water (m³)", value: analysisData.metrics.water?.withdrawals_m3 || "N/A" },
+                        { label: "Waste (Tonnes)", value: analysisData.metrics.waste?.total_tonnes || "N/A" },
+                        { label: "Board Diversity", value: analysisData.metrics.governance?.board_female_pct ? `${analysisData.metrics.governance.board_female_pct}%` : "N/A" },
+                      ].map((metric, i) => (
+                        <div key={i} className="bg-white/5 rounded-2xl p-4 border border-white/5 flex flex-col gap-2">
+                          <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{metric.label}</span>
+                          <span className="text-xl md:text-2xl font-black font-outfit text-white">{metric.value ? metric.value.toLocaleString() : "N/A"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </BentoCard>
+
+                </section>
+              </motion.div>
+            )
+          )}
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
