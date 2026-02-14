@@ -18,7 +18,10 @@ import {
   XCircle,
   Menu,
   X,
-  Loader2
+  Loader2,
+  Leaf,
+  Globe,
+  TrendingDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
