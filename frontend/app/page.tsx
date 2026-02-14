@@ -35,6 +35,8 @@ import {
   Cell
 } from "recharts";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 // --- Utilities ---
 
 function cn(...inputs: ClassValue[]) {
@@ -166,7 +168,7 @@ const ChatView = ({ reportId }: { reportId: string | null }) => {
     setLoading(true);
 
     try {
-      const res = await axios.post("http://localhost:8000/api/query", {
+      const res = await axios.post(`${API_URL}/api/query`, {
         question: userMsg,
         report_ids: [reportId]
       });
@@ -274,6 +276,8 @@ export default function Dashboard() {
     }
   };
 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
@@ -290,7 +294,7 @@ export default function Dashboard() {
 
     try {
       // 1. Upload Report
-      const uploadRes = await axios.post("http://localhost:8000/api/reports", formData);
+      const uploadRes = await axios.post(`${API_URL}/api/reports`, formData);
       const reports = uploadRes.data.reports;
       // Get the ID of the last report in the list, assuming it's the one we just uploaded
       const newReportId = reports[reports.length - 1].id;
@@ -300,9 +304,9 @@ export default function Dashboard() {
 
       // 2. Run Analysis in Parallel
       const [riskRes, metricsRes, complianceRes] = await Promise.all([
-        axios.post("http://localhost:8000/api/risk", { report_id: newReportId }),
-        axios.post("http://localhost:8000/api/metrics", { report_id: newReportId }),
-        axios.post("http://localhost:8000/api/compliance", { report_id: newReportId })
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
@@ -324,7 +328,7 @@ export default function Dashboard() {
   const loadSampleReport = async () => {
     setIsUploading(true);
     try {
-      const res = await axios.post("http://localhost:8000/api/sample-report");
+      const res = await axios.post(`${API_URL}/api/sample-report`);
       const reports = res.data.reports;
       const newReportId = reports[reports.length - 1].id;
       setReportId(newReportId);
@@ -333,9 +337,9 @@ export default function Dashboard() {
       setIsAnalyzing(true);
 
       const [riskRes, metricsRes, complianceRes] = await Promise.all([
-        axios.post("http://localhost:8000/api/risk", { report_id: newReportId }),
-        axios.post("http://localhost:8000/api/metrics", { report_id: newReportId }),
-        axios.post("http://localhost:8000/api/compliance", { report_id: newReportId })
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
