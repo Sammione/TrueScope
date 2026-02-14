@@ -24,8 +24,10 @@ from pypdf import PdfReader
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
-    # Fallback if not in env but user provided it in conversation (for safety, we rely on .env mainly)
-    pass
+    raise RuntimeError(
+        "OPENAI_API_KEY not found in environment variables. "
+        "Please set it in your deployment platform (Render/Vercel) or in your .env file."
+    )
 
 client = OpenAI(api_key=api_key)
 
