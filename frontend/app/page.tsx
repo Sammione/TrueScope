@@ -17,7 +17,8 @@ import {
   CheckCircle2,
   XCircle,
   Menu,
-  X
+  X,
+  Loader2
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
