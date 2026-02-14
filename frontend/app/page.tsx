@@ -16,10 +16,8 @@ import {
   Plus,
   CheckCircle2,
   XCircle,
-  Loader2,
-  TrendingDown,
-  Globe,
-  Leaf
+  Menu,
+  X
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
@@ -263,6 +261,7 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Animation variants
@@ -365,12 +364,28 @@ export default function Dashboard() {
   ] : [];
 
   return (
-    <div className="flex min-h-screen bg-[#050505] text-white selection:bg-emerald-500/30 overflow-hidden">
+    <div className="flex min-h-screen bg-[#050505] text-white selection:bg-emerald-500/30 overflow-hidden flex-col md:flex-row">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-emerald-900/20 via-[#050505] to-black pointer-events-none" />
 
-      {/* Sidebar */}
-      <aside className="w-80 h-screen sticky top-0 hidden md:flex flex-col gap-8 p-8 border-r border-white/5 bg-black/20 backdrop-blur-xl z-50">
-        <div className="flex items-center gap-3 px-2">
+      {/* Mobile Header */}
+      <div className="md:hidden fixed top-0 left-0 right-0 p-4 z-50 flex items-center justify-between bg-black/80 backdrop-blur-md border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-emerald-500 flex items-center justify-center">
+            <ShieldCheck className="text-black w-5 h-5" />
+          </div>
+          <span className="font-bold font-outfit text-white">TrueScope</span>
+        </div>
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-white">
+          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
+      </div>
+
+      {/* Sidebar (Responsive) */}
+      <aside className={cn(
+        "fixed inset-y-0 left-0 w-80 bg-black/90 backdrop-blur-xl z-40 p-8 flex flex-col gap-8 transition-transform duration-300 border-r border-white/5 md:relative md:bg-black/20 md:backdrop-blur-xl md:translate-x-0",
+        isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="flex items-center gap-3 px-2 mt-16 md:mt-0">
           <div className="w-10 h-10 rounded-2xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
             <ShieldCheck className="text-black w-6 h-6" />
           </div>
@@ -385,31 +400,31 @@ export default function Dashboard() {
             icon={Activity}
             label="Dashboard"
             active={activeTab === "dashboard"}
-            onClick={() => setActiveTab("dashboard")}
+            onClick={() => { setActiveTab("dashboard"); setIsMobileMenuOpen(false); }}
           />
           <SidebarItem
             icon={MessageSquare}
             label="Ask AI"
             active={activeTab === "chat"}
-            onClick={() => setActiveTab("chat")}
+            onClick={() => { setActiveTab("chat"); setIsMobileMenuOpen(false); }}
           />
           <SidebarItem
             icon={Search}
             label="Deep Dive"
             active={activeTab === "claims"}
-            onClick={() => setActiveTab("claims")}
+            onClick={() => { setActiveTab("claims"); setIsMobileMenuOpen(false); }}
           />
           <SidebarItem
             icon={BarChart3}
             label="Metrics & Data"
             active={activeTab === "metrics"}
-            onClick={() => setActiveTab("metrics")}
+            onClick={() => { setActiveTab("metrics"); setIsMobileMenuOpen(false); }}
           />
           <SidebarItem
             icon={FileText}
             label="Reports"
             active={activeTab === "reports"}
-            onClick={() => setActiveTab("reports")}
+            onClick={() => { setActiveTab("reports"); setIsMobileMenuOpen(false); }}
           />
         </nav>
 
@@ -429,7 +444,7 @@ export default function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-6 md:p-12 lg:p-16 flex flex-col gap-12 max-w-7xl mx-auto relative z-10">
+      <main className="flex-1 p-6 md:p-12 lg:p-16 flex flex-col gap-12 max-w-7xl mx-auto relative z-10 pt-24 md:pt-12 overflow-y-auto">
         <AnimatePresence mode="wait">
           {!analysisData && !isAnalyzing ? (
             // --- Hero / Upload View ---
