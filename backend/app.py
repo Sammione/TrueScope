@@ -1091,12 +1091,24 @@ class ESGIndex:
             self.index = faiss.IndexFlatIP(self.emb_dim)
 
     def _embed_text(self, text: str) -> List[float]:
-        resp = genai.embed_content(model=EMBED_MODEL, content=text)
-        emb = resp["embedding"]
-        return l2_normalize(emb)
+        try:
+            text = text.replace("\n", " ")
+            resp = client.embeddings.create(input=[text], model=EMBED_MODEL)
+            emb = resp.data[0].embedding
+            return l2_normalize(emb)
+        except Exception as e:
+            print(f"Embedding error: {e}")
+            return [0.0] * 1536  # Fallback dimension for text-embedding-3-small
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
-        return [self._embed_text(t) for t in texts]
+        try:
+            clean_texts = [t.replace("\n", " ") for t in texts]
+            resp = client.embeddings.create(input=clean_texts, model=EMBED_MODEL)
+            embeddings = [d.embedding for d in resp.data]
+            return [l2_normalize(e) for e in embeddings]
+        except Exception as e:
+            print(f"Batch embedding error: {e}")
+            return [[0.0]*1536 for _ in texts]
 
     def _chunk_pages(
         self,
