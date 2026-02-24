@@ -570,18 +570,16 @@ async def upload_reports(files: List[UploadFile] = File(...)):
 @app.post("/api/sample-report", response_model=ReportsResponse)
 def load_sample_report():
     sample_text = (
-        "ESG REPORT 2024 – AFRIGRID ENERGY PLC. "
-        "Afrigrid Energy Plc is a West African electricity generation and distribution company. "
-        "Scope 1 emissions: 130000 tCO2e; Scope 2 emissions: 82000 tCO2e; "
-        "Scope 3 emissions: 460000 tCO2e. Total energy consumption: 124000 MWh. "
-        "Water withdrawals: 98500 m3. Total non-hazardous waste generated: 4300 tonnes. "
-        "Total employees: 5100. Board female representation: 36%. "
-        "The company references GRI Standards, SASB Electric Utilities & Power Generators, "
-        "and partial alignment with IFRS S1 and IFRS S2. The strategy aligns with SDG 7 "
-        "(Affordable and Clean Energy) and SDG 13 (Climate Action)."
+        "ESG SUSTAINABILITY AUDIT 2024 - TESTCORP INTERNATIONAL. "
+        "TestCorp is a global manufacturing leader. Scope 1: 12500 tCO2e. Scope 2: 8200 tCO2e. "
+        "Scope 3: 455000 tCO2e. Total Energy: 156000 MWh. Water: 98500 m3. Waste: 4300 tonnes. "
+        "Employees: 12450. Board Diversity: 33% female representation. "
+        "The report follows GRI Standards, SASB Industrial Machinery, and IFRS S1/S2 requirements. "
+        "We support SDG 7, 12, and 13. Claim 1: 'Net Zero by 2040' supported by $50M solar investment. "
+        "Claim 2: '100% eco-friendly packaging'. Contradiction: Inner plastic lining is non-recyclable."
     )
     esg_index.add_report(
-        name="Sample_ESG_Report_2024_Afrigrid.txt",
+        name="Sample_ESG_Report_Comprehensive.txt",
         content=sample_text,
         pages_text=[sample_text],
     )
