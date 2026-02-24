@@ -34,7 +34,12 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Cell
+  Cell,
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis
 } from "recharts";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -255,6 +260,122 @@ const ChatView = ({ reportId }: { reportId: string | null }) => {
   );
 };
 
+// --- ESG Radar Chart ---
+
+const ESGRadarChart = ({ data }: { data: any }) => {
+  const radarData = [
+    { subject: 'Environmental', A: data.e || 20, fullMark: 100 },
+    { subject: 'Social', A: data.s || 20, fullMark: 100 },
+    { subject: 'Governance', A: data.g || 20, fullMark: 100 },
+    { subject: 'Transparency', A: data.transparency || 20, fullMark: 100 },
+    { subject: 'Verification', A: data.verification || 20, fullMark: 100 },
+  ];
+
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+          <PolarGrid stroke="rgba(255,255,255,0.1)" />
+          <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 10, fontWeight: 700 }} />
+          <Radar
+            name="ESG Profile"
+            dataKey="A"
+            stroke="#10b981"
+            fill="#10b981"
+            fillOpacity={0.5}
+          />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+};
+
+// --- Claims View Component ---
+
+const ClaimsView = ({ claimsData }: { claimsData: any }) => {
+  if (!claimsData) return <div className="text-center p-12 text-slate-500">No claims analysis available.</div>;
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { label: "Total Claims", value: claimsData.summary.total_claims, icon: FileText, color: "text-blue-400" },
+          { label: "Supported", value: claimsData.summary.supported, icon: CheckCircle2, color: "text-emerald-400" },
+          { label: "Weak/Vague", value: claimsData.summary.weak, icon: AlertTriangle, color: "text-amber-400" },
+          { label: "Unsupported", value: (claimsData.summary.unsupported || 0) + (claimsData.summary.contradictory || 0), icon: XCircle, color: "text-rose-400" },
+        ].map((stat, i) => (
+          <div key={i} className="glass p-4 rounded-2xl border border-white/5 flex items-center gap-4">
+            <div className={cn("p-2 rounded-xl bg-white/5", stat.color)}>
+              <stat.icon className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{stat.label}</p>
+              <p className="text-xl font-black font-outfit">{stat.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4">
+        {claimsData.results.map((item: any, i: number) => (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.05 }}
+            key={i}
+            className="glass p-6 rounded-[2rem] border border-white/5 space-y-4 hover:border-white/10 transition-all group"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                    item.verdict === 'supported' ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" :
+                      item.verdict === 'weak' ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" :
+                        "bg-rose-500/10 text-rose-400 border border-rose-500/20"
+                  )}>
+                    {item.verdict}
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                    Confidence: {(item.confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <p className="text-lg font-bold font-outfit text-white leading-tight">
+                  {item.claim.text}
+                </p>
+              </div>
+              <div className="shrink-0 p-2 rounded-xl bg-white/5 text-slate-400 group-hover:text-white transition-colors">
+                <ChevronRight className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-white/5">
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-widest font-black text-slate-500">Analysis Rationale</p>
+                <p className="text-xs text-slate-300 leading-relaxed italic">"{item.rationale}"</p>
+                {item.missing && (
+                  <p className="text-[10px] text-slate-500"><span className="font-bold text-rose-400/70">Missing:</span> {item.missing}</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-[10px] uppercase tracking-widest font-black text-slate-500">Source Evidence</p>
+                <div className="space-y-2">
+                  {item.evidence.slice(0, 2).map((ev: any, ei: number) => (
+                    <div key={ei} className="text-[10px] p-2 rounded-xl bg-black/40 border border-white/5 text-slate-400 font-mono line-clamp-2">
+                      <span className="text-emerald-500 font-bold">[{ev.source}]</span> {ev.snippet}
+                    </div>
+                  ))}
+                  {item.evidence.length === 0 && <p className="text-[10px] text-slate-600 italic">No direct evidence found in report.</p>}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 
 // --- Main Page ---
 
@@ -265,6 +386,8 @@ export default function Dashboard() {
   const [isUploading, setIsUploading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
+  const [claimsData, setClaimsData] = useState<any>(null);
+  const [isVerifyingClaims, setIsVerifyingClaims] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -318,12 +441,24 @@ export default function Dashboard() {
         compliance: complianceRes.data.compliance
       });
 
+      // 3. Extract and Verify Claims
+      setIsVerifyingClaims(true);
+      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 });
+      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+        report_id: newReportId,
+        claims: claimsExtract.data.claims,
+        include_external_evidence: true
+      });
+      setClaimsData(claimsVerify.data);
+      setIsVerifyingClaims(false);
+
     } catch (error) {
       console.error("Error analyzing report:", error);
       alert("Analysis failed. Please check the backend connection.");
       setFile(null); // Reset
     } finally {
       setIsAnalyzing(false);
+      setIsVerifyingClaims(false);
       setActiveTab("dashboard");
     }
   };
@@ -350,11 +485,24 @@ export default function Dashboard() {
         metrics: metricsRes.data.metrics,
         compliance: complianceRes.data.compliance
       });
+
+      // Claims for sample
+      setIsVerifyingClaims(true);
+      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 8 });
+      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+        report_id: newReportId,
+        claims: claimsExtract.data.claims,
+        include_external_evidence: false
+      });
+      setClaimsData(claimsVerify.data);
+      setIsVerifyingClaims(false);
+
     } catch (e) {
       console.error(e);
       alert("Failed to load sample report.");
     } finally {
       setIsAnalyzing(false);
+      setIsVerifyingClaims(false);
     }
   };
 
@@ -545,6 +693,26 @@ export default function Dashboard() {
               >
                 <ChatView reportId={reportId} />
               </motion.div>
+            ) : activeTab === "claims" ? (
+              <motion.div
+                key="claims"
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="w-full"
+              >
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-[10px] uppercase font-black tracking-[0.3em] text-emerald-500">
+                        Evidence Deep Dive
+                      </span>
+                    </div>
+                    <h2 className="text-4xl md:text-5xl font-black font-outfit tracking-tighter">Claim Verifier</h2>
+                  </div>
+                </header>
+                <ClaimsView claimsData={claimsData} />
+              </motion.div>
             ) : (
               <motion.div
                 key="dashboard"
@@ -567,13 +735,13 @@ export default function Dashboard() {
                     <h2 className="text-4xl md:text-5xl font-black font-outfit tracking-tighter">Executive Summary</h2>
                   </div>
                   <div className="flex items-center gap-4">
-                    <button onClick={() => setAnalysisData(null)} className="flex items-center gap-2 px-6 py-3.5 rounded-full glass border-white/10 text-slate-300 text-sm font-bold hover:bg-white/10 transition-all">
+                    <button onClick={() => { setAnalysisData(null); setClaimsData(null); }} className="flex items-center gap-2 px-6 py-3.5 rounded-full glass border-white/10 text-slate-300 text-sm font-bold hover:bg-white/10 transition-all">
                       <RefreshCw className="w-4 h-4" />
                       New Analysis
                     </button>
-                    <button className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
+                    <button onClick={() => window.print()} className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
                       <FileText className="w-4 h-4" />
-                      Export PDF
+                      Export Report
                     </button>
                   </div>
                 </header>
@@ -585,14 +753,25 @@ export default function Dashboard() {
                   <BentoCard title="Greenwashing Risk" className="md:col-span-3 lg:col-span-1" icon={AlertTriangle} delay={0.1}>
                     <div className="flex flex-col items-center justify-center h-full gap-4">
                       <RiskGauge score={analysisData.risk.score} />
-                      <p className="text-[11px] text-center text-slate-500 leading-relaxed font-medium px-4">
-                        {analysisData.risk.explanation.slice(0, 100)}...
+                      <p className="text-[11px] text-center text-slate-500 leading-relaxed font-medium px-4 line-clamp-3">
+                        {analysisData.risk.explanation}
                       </p>
                     </div>
                   </BentoCard>
 
+                  {/* ESG Radar Chart */}
+                  <BentoCard title="ESG Integrity Profile" className="md:col-span-3 lg:col-span-1" icon={Globe} delay={0.2}>
+                    <ESGRadarChart data={{
+                      e: analysisData.metrics.emissions ? 80 : 30,
+                      s: analysisData.metrics.social ? 70 : 40,
+                      g: analysisData.metrics.governance ? 90 : 50,
+                      transparency: analysisData.compliance.gri?.covered ? 85 : 40,
+                      verification: claimsData?.summary?.supported > 0 ? 75 : 30
+                    }} />
+                  </BentoCard>
+
                   {/* Emissions Chart */}
-                  <BentoCard title="Emissions Profile (tCO2e)" className="md:col-span-3 lg:col-span-2" icon={Leaf} delay={0.2}>
+                  <BentoCard title="Emissions Profile (tCO2e)" className="md:col-span-6 lg:col-span-2" icon={Leaf} delay={0.3}>
                     <div className="h-48 w-full mt-4">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={metricsChartData}>
@@ -614,27 +793,6 @@ export default function Dashboard() {
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
-                    </div>
-                  </BentoCard>
-
-                  {/* Compliance Checklist */}
-                  <BentoCard title="Framework Alignment" className="md:col-span-6 lg:col-span-1" icon={Globe} delay={0.3}>
-                    <div className="space-y-4 pt-2">
-                      {[
-                        { label: "GRI Standards", status: analysisData.compliance.gri?.covered },
-                        { label: "SASB", status: analysisData.compliance.sasb?.covered },
-                        { label: "IFRS S1 / S2", status: analysisData.compliance.ifrs_s1?.covered || analysisData.compliance.ifrs_s2?.covered },
-                        { label: "SDG Goals", status: analysisData.compliance.sdgs?.covered },
-                      ].map((item, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5">
-                          <span className="text-xs font-bold text-slate-300">{item.label}</span>
-                          {item.status ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-rose-400" />
-                          )}
-                        </div>
-                      ))}
                     </div>
                   </BentoCard>
 

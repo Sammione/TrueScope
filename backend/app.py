@@ -105,7 +105,7 @@ class ESGIndex:
             self.emb_dim = len(example_embedding)
             self.index = faiss.IndexFlatIP(self.emb_dim)
 
-    def _embed_text(self, text: str) -> List[float]:
+    def _embed_text(self, text: str) -> List[fl
         try:
             text = text.replace("\n", " ")
             resp = client.embeddings.create(input=[text], model=EMBED_MODEL)
@@ -113,7 +113,7 @@ class ESGIndex:
             return l2_normalize(emb)
         except Exception as e:
             print(f"Embedding error: {e}")
-            return [0.0] * 1536 # Fallback dimension for text-embedding-3-small
+            return [0.0] * 1536 # Fallback dimension for text-embedding-
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         # Batch embedding for efficiency
