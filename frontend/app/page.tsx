@@ -376,6 +376,98 @@ const ClaimsView = ({ claimsData }: { claimsData: any }) => {
   );
 };
 
+// --- Reports View ---
+
+const ReportsView = ({ allReports, onSelect }: { allReports: any[], onSelect: (reportId: string) => void }) => {
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-black font-outfit tracking-tighter">Your Library</h2>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {allReports.map((report, i) => (
+          <motion.div
+            key={report.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            className="glass p-6 rounded-[2rem] border border-white/5 hover:border-emerald-500/30 transition-all cursor-pointer group"
+          >
+            <div className="flex items-center gap-4 mb-4">
+              <div className="p-3 rounded-2xl bg-white/5 text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                <FileText className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-bold text-white truncate max-w-[150px]">{report.name}</h4>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  {new Date(report.uploaded_at).toLocaleDateString()}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-400 mb-6">PDF Document • {report.pages} pages</p>
+            <button
+              onClick={() => onSelect(report.id)}
+              className="w-full py-3 rounded-xl bg-white/5 text-xs font-bold hover:bg-emerald-500 hover:text-black transition-all"
+            >
+              Open Analysis
+            </button>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- Metrics View ---
+
+const MetricsView = ({ metrics, risk }: { metrics: any, risk: any }) => {
+  if (!metrics) return null;
+
+  const sections = [
+    {
+      title: "Carbon Emissions", data: [
+        { label: "Scope 1 (tCO2e)", value: metrics.emissions?.scope1_tco2e },
+        { label: "Scope 2 (tCO2e)", value: metrics.emissions?.scope2_tco2e },
+        { label: "Scope 3 (tCO2e)", value: metrics.emissions?.scope3_tco2e },
+      ]
+    },
+    {
+      title: "Resources & Energy", data: [
+        { label: "Total Energy (MWh)", value: metrics.energy?.total_mwh },
+        { label: "Water Withdrawals (m³)", value: metrics.water?.withdrawals_m3 },
+        { label: "Non-Hazardous Waste (Tonnes)", value: metrics.waste?.total_tonnes },
+      ]
+    },
+    {
+      title: "Social & Governance", data: [
+        { label: "Total Employees", value: metrics.social?.employees_total },
+        { label: "Board Diversity (Female %)", value: metrics.governance?.board_female_pct },
+      ]
+    }
+  ];
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {sections.map((section, idx) => (
+          <BentoCard key={idx} title={section.title} className="col-span-1">
+            <div className="space-y-4 pt-2">
+              {section.data.map((item, i) => (
+                <div key={i} className="flex flex-col gap-1 p-3 rounded-2xl bg-white/[0.02] border border-white/5">
+                  <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{item.label}</span>
+                  <span className="text-xl font-black font-outfit text-white">
+                    {item.value !== null && item.value !== undefined ? item.value.toLocaleString() : "Not Disclosed"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </BentoCard>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 
 // --- Main Page ---
 
@@ -387,9 +479,23 @@ export default function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
   const [claimsData, setClaimsData] = useState<any>(null);
+  const [allReports, setAllReports] = useState<any[]>([]);
   const [isVerifyingClaims, setIsVerifyingClaims] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchReports = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/reports`);
+      setAllReports(res.data.reports);
+    } catch (e) {
+      console.error("Failed to fetch reports:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
 
   // Animation variants
   const containerVariants = {
@@ -450,6 +556,7 @@ export default function Dashboard() {
         include_external_evidence: true
       });
       setClaimsData(claimsVerify.data);
+      await fetchReports();
       setIsVerifyingClaims(false);
 
     } catch (error) {
@@ -495,6 +602,7 @@ export default function Dashboard() {
         include_external_evidence: false
       });
       setClaimsData(claimsVerify.data);
+      await fetchReports();
       setIsVerifyingClaims(false);
 
     } catch (e) {
@@ -680,6 +788,54 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold font-outfit">Analyzing Report Data...</h2>
                 <p className="text-slate-400">Checking Scope 1, 2, 3 • Verifying GRI Alignment • Detecting Anomalies</p>
               </div>
+            </motion.div>
+          ) : activeTab === "reports" ? (
+            <motion.div
+              key="reports"
+              variants={containerVariants}
+              initial="hidden"
+              animate="show"
+              className="w-full"
+            >
+              <ReportsView
+                allReports={allReports}
+                onSelect={async (id) => {
+                  setIsAnalyzing(true);
+                  setActiveTab("dashboard");
+                  const [riskRes, metricsRes, complianceRes] = await Promise.all([
+                    axios.post(`${API_URL}/api/risk`, { report_id: id }),
+                    axios.post(`${API_URL}/api/metrics`, { report_id: id }),
+                    axios.post(`${API_URL}/api/compliance`, { report_id: id })
+                  ]);
+                  setAnalysisData({
+                    risk: riskRes.data,
+                    metrics: metricsRes.data.metrics,
+                    compliance: complianceRes.data.compliance
+                  });
+                  setReportId(id);
+                  setIsAnalyzing(false);
+                }}
+              />
+            </motion.div>
+          ) : activeTab === "metrics" ? (
+            <motion.div
+              key="metrics"
+              variants={containerVariants}
+              initial="hidden"
+              animate="show"
+              className="w-full"
+            >
+              <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] uppercase font-black tracking-[0.3em] text-emerald-500">
+                      Data Breakdown
+                    </span>
+                  </div>
+                  <h2 className="text-4xl md:text-5xl font-black font-outfit tracking-tighter">Metric Repository</h2>
+                </div>
+              </header>
+              <MetricsView metrics={analysisData?.metrics} risk={analysisData?.risk} />
             </motion.div>
           ) : (
             // --- Dashboard / Chat View Swapper ---

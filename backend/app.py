@@ -105,7 +105,7 @@ class ESGIndex:
             self.emb_dim = len(example_embedding)
             self.index = faiss.IndexFlatIP(self.emb_dim)
 
-    def _embed_text(self, text: str) -> List[fl
+    def _embed_text(self, text: str) -> List[float]:
         try:
             text = text.replace("\n", " ")
             resp = client.embeddings.create(input=[text], model=EMBED_MODEL)
@@ -113,7 +113,7 @@ class ESGIndex:
             return l2_normalize(emb)
         except Exception as e:
             print(f"Embedding error: {e}")
-            return [0.0] * 1536 # Fallback dimension for text-embedding-
+            return [0.0] * 1536 # Fallback dimension for text-embedding-3-small
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         # Batch embedding for efficiency
@@ -656,11 +656,7 @@ def generate_summary(req: SummaryRequest):
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    chunks_for_report = [c for c in esg_index.chunks if c["report_id"] == report_id]
-    max_chunks = 80
-    chunks_for_report = chunks_for_report[:max_chunks]
-
-    context = "\n\n".join(f"(Page {c['page']}) {c['text']}" for c in chunks_for_report)
+    context = _claim_candidate_snippets(esg_index.reports[report_id], max_snippets=40)
 
     prompt = (
         "You are an ESG analyst. Based only on the context below, write a professional, "
@@ -687,10 +683,7 @@ def extract_metrics(req: MetricsRequest):
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    chunks_for_report = [c for c in esg_index.chunks if c["report_id"] == report_id]
-    max_chunks = 80
-    chunks_for_report = chunks_for_report[:max_chunks]
-    context = "\n\n".join(f"(Page {c['page']}) {c['text']}" for c in chunks_for_report)
+    context = _claim_candidate_snippets(esg_index.reports[report_id], max_snippets=40)
 
     prompt = (
         "You are an ESG data extraction assistant. Based ONLY on the context below, "
@@ -735,10 +728,7 @@ def compliance_check(req: ComplianceRequest):
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    chunks_for_report = [c for c in esg_index.chunks if c["report_id"] == report_id]
-    max_chunks = 80
-    chunks_for_report = chunks_for_report[:max_chunks]
-    context = "\n\n".join(f"(Page {c['page']}) {c['text']}" for c in chunks_for_report)
+    context = _claim_candidate_snippets(esg_index.reports[report_id], max_snippets=40)
 
     prompt = (
         "You are an ESG reporting compliance assistant. Based ONLY on the context below, "
@@ -773,10 +763,7 @@ def greenwashing_risk(req: RiskRequest):
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    chunks_for_report = [c for c in esg_index.chunks if c["report_id"] == report_id]
-    max_chunks = 80
-    chunks_for_report = chunks_for_report[:max_chunks]
-    context = "\n\n".join(f"(Page {c['page']}) {c['text']}" for c in chunks_for_report)
+    context = _claim_candidate_snippets(esg_index.reports[report_id], max_snippets=40)
 
     prompt = (
         "You are an ESG analyst assessing potential greenwashing. Based ONLY on the context below, "
