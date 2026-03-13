@@ -151,6 +151,21 @@ const RiskGauge = ({ score }: { score: string }) => {
   );
 };
 
+const FluffGauge = ({ fluffRatio }: { fluffRatio: string | undefined }) => {
+  if (!fluffRatio) return null;
+  return (
+    <div className="mt-4 p-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-between">
+      <div className="flex flex-col">
+        <span className="text-[10px] uppercase tracking-widest font-bold text-slate-500">Fluff-to-Fact Ratio</span>
+        <span className="text-sm font-bold font-outfit text-white">{fluffRatio}</span>
+      </div>
+      <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+        <BarChart3 className="w-4 h-4" />
+      </div>
+    </div>
+  );
+};
+
 // --- Chat Component ---
 
 const ChatView = ({ reportId }: { reportId: string | null }) => {
@@ -535,16 +550,18 @@ export default function Dashboard() {
       setIsAnalyzing(true);
 
       // 2. Run Analysis in Parallel
-      const [riskRes, metricsRes, complianceRes] = await Promise.all([
+      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
         axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
         axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId })
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
         risk: riskRes.data,
         metrics: metricsRes.data.metrics,
-        compliance: complianceRes.data.compliance
+        compliance: complianceRes.data.compliance,
+        summary: summaryRes.data.summary_md
       });
 
       // 3. Extract and Verify Claims
@@ -581,16 +598,18 @@ export default function Dashboard() {
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      const [riskRes, metricsRes, complianceRes] = await Promise.all([
+      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
         axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
         axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId })
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
         risk: riskRes.data,
         metrics: metricsRes.data.metrics,
-        compliance: complianceRes.data.compliance
+        compliance: complianceRes.data.compliance,
+        summary: summaryRes.data.summary_md
       });
 
       // Claims for sample
@@ -612,6 +631,37 @@ export default function Dashboard() {
       setIsAnalyzing(false);
       setIsVerifyingClaims(false);
     }
+  };
+
+  const handleExportAudit = () => {
+    if (!analysisData || !claimsData) return;
+
+    let content = `# TrueScope Executive ESG Audit\n\n`;
+    content += `## Greenwashing Risk Score: ${analysisData.risk.score}\n`;
+    content += `Fluff-to-Fact Ratio: ${analysisData.risk.fluff_ratio || "N/A"}\n\n`;
+    content += `## AI Summary\n${analysisData.summary}\n\n`;
+    content += `## Claims Verification Summary\n`;
+    content += `- Total Claims: ${claimsData.summary.total_claims}\n`;
+    content += `- Supported: ${claimsData.summary.supported}\n`;
+    content += `- Weak: ${claimsData.summary.weak}\n`;
+    content += `- Unsupported/Contradictory: ${(claimsData.summary.unsupported || 0) + (claimsData.summary.contradictory || 0)}\n\n`;
+
+    content += `## Claim Details\n`;
+    claimsData.results.forEach((r: any, i: number) => {
+      content += `### Claim ${i + 1}: ${r.verdict.toUpperCase()}\n`;
+      content += `Text: "${r.claim.text}"\n`;
+      content += `Rationale: ${r.rationale}\n\n`;
+    });
+
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `ESG_Audit_${reportId}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const triggerUpload = () => fileInputRef.current?.click();
@@ -895,7 +945,7 @@ export default function Dashboard() {
                       <RefreshCw className="w-4 h-4" />
                       New Analysis
                     </button>
-                    <button onClick={() => window.print()} className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
+                    <button onClick={handleExportAudit} className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
                       <FileText className="w-4 h-4" />
                       Export Report
                     </button>
@@ -913,6 +963,7 @@ export default function Dashboard() {
                         {analysisData.risk.explanation}
                       </p>
                     </div>
+                    <FluffGauge fluffRatio={analysisData.risk.fluff_ratio} />
                   </BentoCard>
 
                   {/* ESG Radar Chart */}

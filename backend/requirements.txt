@@ -7,3 +7,4 @@ pypdf
 numpy
 python-multipart
 cryptography
+duckduckgo-search

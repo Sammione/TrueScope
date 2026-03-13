@@ -17,6 +17,10 @@ import faiss
 import numpy as np
 from pypdf import PdfReader
 
+try:
+    from duckduckgo_search import DDGS
+except ImportError:
+    DDGS = None
 
 # ---------------------------
 # Environment & OpenAI config
@@ -459,6 +463,7 @@ class RiskResponse(BaseModel):
     report_id: str
     score: str
     explanation: str
+    fluff_ratio: Optional[str] = None
 
 
 class ReportsResponse(BaseModel):
@@ -533,6 +538,22 @@ def health():
     }
 
 
+def fetch_live_news(company_name: str) -> str:
+    """Fetch recent live news for a company for fact-checking."""
+    if not DDGS:
+        return ""
+    try:
+        results = DDGS().text(f"{company_name} ESG OR environment OR lawsuit OR greenwashing", max_results=3)
+        news_snippets = []
+        for r in results:
+            title = r.get("title", "")
+            body = r.get("body", "")
+            news_snippets.append(f"Headline: {title}\nSnippet: {body}")
+        return "\n\n".join(news_snippets)
+    except Exception as e:
+        print(f"Error fetching news for {company_name}: {e}")
+        return ""
+
 @app.post("/api/reports", response_model=ReportsResponse)
 async def upload_reports(files: List[UploadFile] = File(...)):
     if not files:
@@ -548,7 +569,20 @@ async def upload_reports(files: List[UploadFile] = File(...)):
             if not full_text.strip():
                 raise HTTPException(status_code=400, detail=f"No text extracted from {name}")
             try:
+                # Basic heuristic to get company name
+                company_name = name.lower().replace(".pdf", "").replace("_", " ")
                 esg_index.add_report(name=name, content=full_text, pages_text=pages)
+                
+                # Auto-fetch live news evidence
+                news_text = fetch_live_news(company_name)
+                if news_text:
+                    evidence_index.add_doc(
+                        title=f"{name} - Live News Check",
+                        source_type="automated_news",
+                        content=news_text,
+                        pages_text=[news_text],
+                        url="https://duckduckgo.com"
+                    )
             except MemoryError:
                 raise HTTPException(
                     status_code=413,
@@ -557,7 +591,19 @@ async def upload_reports(files: List[UploadFile] = File(...)):
         else:
             text = content_bytes.decode("utf-8", errors="ignore")
             try:
+                company_name = name.split(".")[0].lower().replace("_", " ")
                 esg_index.add_report(name=name, content=text, pages_text=[text])
+                
+                # Auto-fetch live news evidence
+                news_text = fetch_live_news(company_name)
+                if news_text:
+                    evidence_index.add_doc(
+                        title=f"{name} - Live News Check",
+                        source_type="automated_news",
+                        content=news_text,
+                        pages_text=[news_text],
+                        url="https://duckduckgo.com"
+                    )
             except MemoryError:
                 raise HTTPException(
                     status_code=413,
@@ -755,6 +801,24 @@ def compliance_check(req: ComplianceRequest):
     return ComplianceResponse(report_id=report_id, compliance=compliance)
 
 
+def calculate_fluff_ratio(context: str) -> str:
+    """Calculate the ratio of fluff words to hard metrics in the text."""
+    fluff_words = ["striving", "conscious", "journey", "committed", "commitment", "revolutionary", "vision", "philosophy", "belief", "beliefs", "hope", "aim", "aiming", "dedicated", "passion", "passionate", "pioneer", "pioneering", "innovative", "leading", "world-class", "transformative", "believe"]
+    
+    text = context.lower()
+    fluff_count = sum(text.count(word) for word in fluff_words)
+    
+    # Simple regex for finding numeric metrics (percentages, money, large numbers, tCO2, MWh)
+    fact_count = len(re.findall(r'\b\d{1,3}(?:\.\d+)?\s?%|\b\$\d+|\b\d{2,4}\b|tco2e|mwh|kwh|tonnes', text))
+    
+    total = fluff_count + fact_count
+    if total == 0:
+        return "0% Fluff / 0% Fact"
+        
+    fluff_pct = int((fluff_count / total) * 100)
+    fact_pct = 100 - fluff_pct
+    return f"{fluff_pct}% Fluff / {fact_pct}% Fact"
+
 @app.post("/api/risk", response_model=RiskResponse)
 def greenwashing_risk(req: RiskRequest):
     report_id = req.report_id
@@ -778,7 +842,9 @@ def greenwashing_risk(req: RiskRequest):
     score = str(data.get("score", "Medium"))
     explanation = str(data.get("explanation", ""))
     
-    return RiskResponse(report_id=report_id, score=score, explanation=explanation)
+    fluff_ratio = calculate_fluff_ratio(context)
+    
+    return RiskResponse(report_id=report_id, score=score, explanation=explanation, fluff_ratio=fluff_ratio)
     
 def _extract_claims_with_llm(report_id: str, max_claims: int = 20) -> List[Dict[str, Any]]:
     rep = esg_index.reports.get(report_id)
