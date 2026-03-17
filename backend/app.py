@@ -566,55 +566,82 @@ async def upload_reports(files: List[UploadFile] = File(...)):
 
     for f in files:
         name = f.filename
+        print(f"Processing file: {name}")
         content_bytes = await f.read()
 
         if name.lower().endswith(".pdf"):
+            print(f"Extracting text from PDF: {name}")
             pages = extract_text_from_pdf(content_bytes)
             full_text = "\n\n".join(pages)
             if not full_text.strip():
+                print(f"Error: No text extracted from {name}")
                 raise HTTPException(status_code=400, detail=f"No text extracted from {name}")
             try:
                 # Basic heuristic to get company name
                 company_name = name.lower().replace(".pdf", "").replace("_", " ")
+                print(f"Adding report to index: {name}")
                 esg_index.add_report(name=name, content=full_text, pages_text=pages)
                 
                 # Auto-fetch live news evidence
+                print(f"Fetching live news for: {company_name}")
                 news_text = fetch_live_news(company_name)
                 if news_text:
-                    evidence_index.add_doc(
-                        title=f"{name} - Live News Check",
-                        source_type="automated_news",
-                        content=news_text,
-                        pages_text=[news_text],
-                        url="https://duckduckgo.com"
-                    )
+                    print(f"Adding automated news evidence for: {company_name}")
+                    try:
+                        evidence_index.add_doc(
+                            title=f"{name} - Live News Check",
+                            source_type="automated_news",
+                            content=news_text,
+                            pages_text=[news_text],
+                            url="https://duckduckgo.com"
+                        )
+                    except Exception as ev_err:
+                        print(f"Warning: Could not add automated evidence: {ev_err}")
+                else:
+                    print("No live news found.")
             except MemoryError:
                 raise HTTPException(
                     status_code=413,
                     detail="This report is too large to process. Please upload a smaller file or a shorter extract.",
                 )
+            except Exception as e:
+                print(f"Error processing {name}: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing {name}: {str(e)}")
         else:
+            print(f"Processing text file: {name}")
             text = content_bytes.decode("utf-8", errors="ignore")
             try:
                 company_name = name.split(".")[0].lower().replace("_", " ")
+                print(f"Adding report to index: {name}")
                 esg_index.add_report(name=name, content=text, pages_text=[text])
                 
                 # Auto-fetch live news evidence
+                print(f"Fetching live news for: {company_name}")
                 news_text = fetch_live_news(company_name)
                 if news_text:
-                    evidence_index.add_doc(
-                        title=f"{name} - Live News Check",
-                        source_type="automated_news",
-                        content=news_text,
-                        pages_text=[news_text],
-                        url="https://duckduckgo.com"
-                    )
+                    print(f"Adding automated news evidence for: {company_name}")
+                    try:
+                        evidence_index.add_doc(
+                            title=f"{name} - Live News Check",
+                            source_type="automated_news",
+                            content=news_text,
+                            pages_text=[news_text],
+                            url="https://duckduckgo.com"
+                        )
+                    except Exception as ev_err:
+                        print(f"Warning: Could not add automated evidence: {ev_err}")
+                else:
+                    print("No live news found.")
             except MemoryError:
                 raise HTTPException(
                     status_code=413,
                     detail="This report is too large to process. Please upload a smaller file or a shorter extract.",
                 )
+            except Exception as e:
+                print(f"Error processing {name}: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing {name}: {str(e)}")
 
+    print(f"Report upload complete. Total reports now: {len(esg_index.reports)}")
     return ReportsResponse(reports=esg_index.list_reports())
 
 
