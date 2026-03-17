@@ -11,8 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+import asyncio
 import openai
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import faiss
 import numpy as np
 from pypdf import PdfReader
@@ -34,6 +35,7 @@ if not api_key:
     )
 
 client = OpenAI(api_key=api_key)
+aclient = AsyncOpenAI(api_key=api_key)
 
 GEN_MODEL = "gpt-4o"
 EMBED_MODEL = "text-embedding-3-small"
@@ -74,6 +76,21 @@ def parse_strict_json(raw: str) -> Any:
     except json.JSONDecodeError:
         return None
 
+async def call_openai_chat_async(prompt: str, json_mode: bool = False) -> str:
+    try:
+        completion = await aclient.chat.completions.create(
+            model=GEN_MODEL,
+            messages=[
+                {"role": "system", "content": "You are a helpful ESG analyst AI."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"} if json_mode else None
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
+
+
 def call_openai_chat(prompt: str, json_mode: bool = False) -> str:
     try:
         completion = client.chat.completions.create(
@@ -109,6 +126,16 @@ class ESGIndex:
             self.emb_dim = len(example_embedding)
             self.index = faiss.IndexFlatIP(self.emb_dim)
 
+    async def _embed_text_async(self, text: str) -> List[float]:
+        try:
+            text = text.replace("\n", " ")
+            resp = await aclient.embeddings.create(input=[text], model=EMBED_MODEL)
+            emb = resp.data[0].embedding
+            return l2_normalize(emb)
+        except Exception as e:
+            print(f"Async embedding error: {e}")
+            return [0.0] * 1536
+
     def _embed_text(self, text: str) -> List[float]:
         try:
             text = text.replace("\n", " ")
@@ -117,7 +144,7 @@ class ESGIndex:
             return l2_normalize(emb)
         except Exception as e:
             print(f"Embedding error: {e}")
-            return [0.0] * 1536 # Fallback dimension for text-embedding-3-small
+            return [0.0] * 1536
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         # Batch embedding for efficiency
@@ -199,6 +226,50 @@ class ESGIndex:
         }
         self.reports[report_id] = report_meta
         return report_meta
+
+    async def search_async(
+        self,
+        query: str,
+        top_k: int = 8,
+        report_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        if self.index is None or not self.chunks:
+            return []
+
+        q_emb = await self._embed_text_async(query)
+
+        q_vec = np.array([q_emb], dtype="float32")
+        total_vectors = self.index.ntotal
+        search_k = min(max(top_k * 3, top_k), total_vectors)
+        if search_k == 0:
+            return []
+
+        distances, indices = self.index.search(q_vec, search_k)
+        results = []
+        seen_ids = set()
+        allowed_reports = set(report_ids) if report_ids else None
+
+        for idx, score in zip(indices[0], distances[0]):
+            if idx < 0 or idx >= len(self.chunks):
+                continue
+            chunk = self.chunks[idx]
+            if allowed_reports and chunk["report_id"] not in allowed_reports:
+                continue
+            if chunk["id"] in seen_ids:
+                continue
+            seen_ids.add(chunk["id"])
+            results.append(
+                {
+                    "score": float(score),
+                    "text": chunk["text"],
+                    "report_id": chunk["report_id"],
+                    "report_name": chunk["report_name"],
+                    "page": chunk["page"],
+                }
+            )
+            if len(results) >= top_k:
+                break
+        return results
 
     def search(
         self,
@@ -349,6 +420,33 @@ class EvidenceIndex:
             "created_at": datetime.utcnow().isoformat() + "Z"
         }
         return self.docs[doc_id]
+
+    async def search_async(self, query: str, top_k: int = 6) -> List[Dict[str, Any]]:
+        if self.index is None or not self.doc_chunks:
+            return []
+        
+        try:
+             resp = await aclient.embeddings.create(input=[query.replace("\n", " ")], model=EMBED_MODEL)
+             q_emb = l2_normalize(resp.data[0].embedding)
+        except Exception as e:
+             print(f"Evidence search error: {e}")
+             return []
+
+        q_vec = np.array([q_emb], dtype="float32")
+        total_vectors = self.index.ntotal
+        search_k = min(top_k, total_vectors)
+        if search_k == 0:
+            return []
+
+        D, I = self.index.search(q_vec, search_k)
+        hits = []
+        for score, idx in zip(D[0], I[0]):
+            if idx < 0 or idx >= len(self.doc_chunks):
+                continue
+            item = dict(self.doc_chunks[idx])
+            item["score"] = float(score)
+            hits.append(item)
+        return hits
 
     def search(self, query: str, top_k: int = 6) -> List[Dict[str, Any]]:
         if self.index is None or not self.doc_chunks:
@@ -678,12 +776,12 @@ def preview_report(report_id: str):
 
 
 @app.post("/api/query", response_model=QueryResponse)
-def query_esg(req: QueryRequest):
+async def query_esg(req: QueryRequest):
     question = req.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is empty")
 
-    search_results = esg_index.search(
+    search_results = await esg_index.search_async(
         query=question,
         top_k=req.top_k,
         report_ids=req.report_ids or None,
@@ -722,12 +820,12 @@ QUESTION:
 {question}
 """
 
-    answer = call_openai_chat(prompt)
+    answer = await call_openai_chat_async(prompt)
     return QueryResponse(answer=answer, citations=citations)
 
 
 @app.post("/api/summary", response_model=SummaryResponse)
-def generate_summary(req: SummaryRequest):
+async def generate_summary(req: SummaryRequest):
     report_id = req.report_id
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -749,12 +847,12 @@ def generate_summary(req: SummaryRequest):
         "Now write the markdown summary."
     )
 
-    summary_md = call_openai_chat(prompt)
+    summary_md = await call_openai_chat_async(prompt)
     return SummaryResponse(report_id=report_id, summary_md=summary_md)
 
 
 @app.post("/api/metrics", response_model=MetricsResponse)
-def extract_metrics(req: MetricsRequest):
+async def extract_metrics(req: MetricsRequest):
     report_id = req.report_id
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -792,14 +890,14 @@ def extract_metrics(req: MetricsRequest):
         f"Context:\n{context}\n\n"
     )
 
-    raw = call_openai_chat(prompt, json_mode=True)
+    raw = await call_openai_chat_async(prompt, json_mode=True)
     metrics = parse_strict_json(raw) or {}
     
     return MetricsResponse(report_id=report_id, metrics=metrics)
 
 
 @app.post("/api/compliance", response_model=ComplianceResponse)
-def compliance_check(req: ComplianceRequest):
+async def compliance_check(req: ComplianceRequest):
     report_id = req.report_id
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -827,7 +925,7 @@ def compliance_check(req: ComplianceRequest):
         f"Context:\n{context}\n\n"
     )
 
-    raw = call_openai_chat(prompt, json_mode=True)
+    raw = await call_openai_chat_async(prompt, json_mode=True)
     compliance = parse_strict_json(raw) or {}
     
     return ComplianceResponse(report_id=report_id, compliance=compliance)
@@ -852,7 +950,7 @@ def calculate_fluff_ratio(context: str) -> str:
     return f"{fluff_pct}% Fluff / {fact_pct}% Fact"
 
 @app.post("/api/risk", response_model=RiskResponse)
-def greenwashing_risk(req: RiskRequest):
+async def greenwashing_risk(req: RiskRequest):
     report_id = req.report_id
     if report_id not in esg_index.reports:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -869,7 +967,7 @@ def greenwashing_risk(req: RiskRequest):
         f"Context:\n{context}\n\n"
     )
 
-    raw = call_openai_chat(prompt, json_mode=True)
+    raw = await call_openai_chat_async(prompt, json_mode=True)
     data = parse_strict_json(raw) or {}
     score = str(data.get("score", "Medium"))
     explanation = str(data.get("explanation", ""))
@@ -878,7 +976,7 @@ def greenwashing_risk(req: RiskRequest):
     
     return RiskResponse(report_id=report_id, score=score, explanation=explanation, fluff_ratio=fluff_ratio)
     
-def _extract_claims_with_llm(report_id: str, max_claims: int = 20) -> List[Dict[str, Any]]:
+async def _extract_claims_with_llm_async(report_id: str, max_claims: int = 20) -> List[Dict[str, Any]]:
     rep = esg_index.reports.get(report_id)
     if not rep:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -915,7 +1013,7 @@ Text snippets from the report:
 {snippets}
 """
 
-    raw = call_openai_chat(prompt, json_mode=True)
+    raw = await call_openai_chat_async(prompt, json_mode=True)
     data = parse_strict_json(raw)
     if not data or "claims" not in data:
         return []
@@ -923,6 +1021,95 @@ Text snippets from the report:
     for i, c in enumerate(claims, start=1):
         c.setdefault("claim_id", f"c{i}")
     return claims
+
+
+async def _verify_claim_async(report_id: str, claim: Dict[str, Any], include_external: bool = True, top_k: int = 5) -> Dict[str, Any]:
+    """Async LLM-as-verifier with parallel retrieval evidence."""
+    claim_text = (claim.get("text") or "").strip()
+    if not claim_text:
+        return {"claim": claim, "verdict": "unsupported", "confidence": 0.0, "rationale": "Empty claim text", "evidence": []}
+
+    # Parallel retrieval
+    if include_external:
+        rep_task = esg_index.search_async(query=claim_text, top_k=top_k, report_ids=[report_id])
+        ext_task = evidence_index.search_async(claim_text, top_k=top_k)
+        rep_hits, ext_hits = await asyncio.gather(rep_task, ext_task)
+    else:
+        rep_hits = await esg_index.search_async(query=claim_text, top_k=top_k, report_ids=[report_id])
+        ext_hits = []
+
+    evidence_blocks = []
+    for h in rep_hits:
+        evidence_blocks.append({
+            "source": "report",
+            "page": h.get("page"),
+            "title": esg_index.reports[report_id].get("name"),
+            "snippet": h.get("text", "")[:900]
+        })
+    for h in ext_hits:
+        evidence_blocks.append({
+            "source": h.get("source_type", "external"),
+            "page": h.get("page"),
+            "title": h.get("title"),
+            "url": h.get("url"),
+            "snippet": h.get("text", "")[:900]
+        })
+
+    evidence_text = "\n\n".join(
+        f"- [{i+1}] ({b.get('source')}) {('page ' + str(b.get('page'))) if b.get('page') else ''} {b.get('title','')}: {b.get('snippet','')}"
+        for i, b in enumerate(evidence_blocks[: max(1, top_k*2)])
+    )
+
+    prompt = f"""You are an ESG claim verifier (greenwashing detector).
+Given a CLAIM and EVIDENCE SNIPPETS, decide whether the claim is supported.
+Return ONLY valid JSON.
+
+Verdict options:
+- supported: evidence directly supports the claim
+- weak: claim is vague/marketing-like OR missing specifics (no baseline, no scope, no date)
+- unsupported: no evidence supports it
+- contradictory: evidence conflicts with the claim
+
+Output schema:
+{{
+  "verdict":"supported|weak|unsupported|contradictory",
+  "confidence":0.0,
+  "why":"short explanation",
+  "missing":"what would prove it (short)",
+  "evidence_refs":[1,2]
+}}
+
+CLAIM: {claim_text}
+
+EVIDENCE SNIPPETS:
+{evidence_text}
+"""
+
+    raw = await call_openai_chat_async(prompt, json_mode=True)
+    data = parse_strict_json(raw) or {}
+    verdict = str(data.get("verdict", "unsupported")).lower()
+    if verdict not in {"supported", "weak", "unsupported", "contradictory"}:
+        verdict = "unsupported"
+    confidence = float(data.get("confidence", 0.0) or 0.0)
+    refs = data.get("evidence_refs", []) or []
+    
+    cited = []
+    for r in refs:
+        try:
+            idx = int(r) - 1
+            if 0 <= idx < len(evidence_blocks):
+                cited.append(evidence_blocks[idx])
+        except Exception:
+            continue
+
+    return {
+        "claim": claim,
+        "verdict": verdict,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "rationale": str(data.get("why", "")),
+        "missing": str(data.get("missing", "")),
+        "evidence": cited
+    }
 
 
 def _verify_claim(report_id: str, claim: Dict[str, Any], include_external: bool = True, top_k: int = 5) -> Dict[str, Any]:
@@ -1013,7 +1200,7 @@ EVIDENCE SNIPPETS:
 
 @app.post("/api/claims/extract", response_model=ExtractClaimsResponse)
 async def extract_claims(req: ExtractClaimsRequest):
-    claims = _extract_claims_with_llm(req.report_id, max_claims=req.max_claims)
+    claims = await _extract_claims_with_llm_async(req.report_id, max_claims=req.max_claims)
     return ExtractClaimsResponse(report_id=req.report_id, claims=claims)
 
 
@@ -1022,22 +1209,26 @@ async def verify_claims(req: VerifyClaimsRequest):
     if not esg_index.reports.get(req.report_id):
         raise HTTPException(status_code=404, detail="Report not found")
 
-    results = []
-    counts = {"supported": 0, "weak": 0, "unsupported": 0, "contradictory": 0}
+    tasks = []
     for c in (req.claims or []):
-        r = _verify_claim(
-            report_id=req.report_id,
-            claim=c,
-            include_external=req.include_external_evidence,
-            top_k=max(2, min(10, req.top_k_evidence))
+        tasks.append(
+            _verify_claim_async(
+                report_id=req.report_id,
+                claim=c,
+                include_external=req.include_external_evidence,
+                top_k=max(2, min(10, req.top_k_evidence))
+            )
         )
-        results.append(r)
+    
+    results = await asyncio.gather(*tasks)
+    
+    counts = {"supported": 0, "weak": 0, "unsupported": 0, "contradictory": 0}
+    for r in results:
         v = r.get("verdict")
         if v in counts:
             counts[v] += 1
 
     total = max(1, len(results))
-    # simple greenwashing score: unsupported + contradictory weigh more than weak
     score = (counts["weak"] * 0.5 + counts["unsupported"] * 1.0 + counts["contradictory"] * 1.2) / total
     score = float(max(0.0, min(1.0, score)))
 
