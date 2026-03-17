@@ -42,7 +42,9 @@ import {
   PolarRadiusAxis
 } from "recharts";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://truescope-1.onrender.com";
+const isLocal = typeof window !== "undefined" && window.location.hostname === "localhost";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (isLocal ? "http://localhost:8000" : "https://truescope-1.onrender.com");
+
 
 // --- Utilities ---
 
@@ -523,7 +525,6 @@ export default function Dashboard() {
     }
   };
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://truescope-1.onrender.com";
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -539,22 +540,23 @@ export default function Dashboard() {
     const formData = new FormData();
     formData.append("files", fileToUpload);
 
+    // Step 1: Upload
+    let currentStep = "Uploading Report";
     try {
-      // 1. Upload Report
-      const uploadRes = await axios.post(`${API_URL}/api/reports`, formData);
+      const uploadRes = await axios.post(`${API_URL}/api/reports`, formData, { timeout: 120000 });
       const reports = uploadRes.data.reports;
-      // Get the ID of the last report in the list, assuming it's the one we just uploaded
       const newReportId = reports[reports.length - 1].id;
       setReportId(newReportId);
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      // 2. Run Analysis in Parallel
+      // Step 2: Run Analysis in Parallel
+      currentStep = "Generating Risk & ESG Metrics";
       const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
-        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/summary`, { report_id: newReportId })
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
       setAnalysisData({
@@ -564,21 +566,30 @@ export default function Dashboard() {
         summary: summaryRes.data.summary_md
       });
 
-      // 3. Extract and Verify Claims
+      // Step 3: Extract Claims
+      currentStep = "Extracting Analysis Claims";
       setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 });
+      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+      
+      // Step 4: Verify Claims
+      currentStep = "Verifying Claims Against Evidence";
       const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
         report_id: newReportId,
         claims: claimsExtract.data.claims,
         include_external_evidence: true
-      });
+      }, { timeout: 180000 }); // Verification is heaviest, give it 3 min
+      
       setClaimsData(claimsVerify.data);
       await fetchReports();
       setIsVerifyingClaims(false);
 
-    } catch (error) {
-      console.error("Error analyzing report:", error);
-      alert("Analysis failed. Please check the backend connection.");
+    } catch (error: any) {
+      console.error(`Error during ${currentStep}:`, error);
+      const detail = error.response?.data?.detail 
+        ? JSON.stringify(error.response.data.detail) 
+        : (error.response?.data ? JSON.stringify(error.response.data) : error.message);
+      
+      alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}\n\nPlease check if your backend is running or reduce document size.`);
       setFile(null); // Reset
     } finally {
       setIsAnalyzing(false);

@@ -26,7 +26,7 @@ except ImportError:
 # ---------------------------
 # Environment & OpenAI config
 # ---------------------------
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise RuntimeError(
@@ -641,12 +641,17 @@ def health():
     }
 
 
-def fetch_live_news(company_name: str) -> str:
-    """Fetch recent live news for a company for fact-checking."""
+async def fetch_live_news_async(company_name: str) -> str:
+    """Async wrapper for fetching news to avoid blocking the event loop."""
     if not DDGS:
         return ""
     try:
-        results = DDGS().text(f"{company_name} ESG OR environment OR lawsuit OR greenwashing", max_results=3)
+        # DDGS is synchronous, but we can wrap it in to_thread
+        def _get_news():
+            with DDGS() as ddgs:
+                return list(ddgs.text(f"{company_name} ESG OR sustainability OR lawsuit", max_results=3))
+        
+        results = await asyncio.to_thread(_get_news)
         news_snippets = []
         for r in results:
             title = r.get("title", "")
@@ -657,6 +662,7 @@ def fetch_live_news(company_name: str) -> str:
         print(f"Error fetching news for {company_name}: {e}")
         return ""
 
+
 @app.post("/api/reports", response_model=ReportsResponse)
 async def upload_reports(files: List[UploadFile] = File(...)):
     if not files:
@@ -664,82 +670,54 @@ async def upload_reports(files: List[UploadFile] = File(...)):
 
     for f in files:
         name = f.filename
-        print(f"Processing file: {name}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Processing report: {name}")
         content_bytes = await f.read()
 
-        if name.lower().endswith(".pdf"):
-            print(f"Extracting text from PDF: {name}")
-            pages = extract_text_from_pdf(content_bytes)
-            full_text = "\n\n".join(pages)
-            if not full_text.strip():
-                print(f"Error: No text extracted from {name}")
-                raise HTTPException(status_code=400, detail=f"No text extracted from {name}")
-            try:
-                # Basic heuristic to get company name
-                company_name = name.lower().replace(".pdf", "").replace("_", " ")
-                print(f"Adding report to index: {name}")
-                esg_index.add_report(name=name, content=full_text, pages_text=pages)
-                
-                # Auto-fetch live news evidence
-                print(f"Fetching live news for: {company_name}")
-                news_text = fetch_live_news(company_name)
-                if news_text:
-                    print(f"Adding automated news evidence for: {company_name}")
-                    try:
-                        evidence_index.add_doc(
-                            title=f"{name} - Live News Check",
-                            source_type="automated_news",
-                            content=news_text,
-                            pages_text=[news_text],
-                            url="https://duckduckgo.com"
-                        )
-                    except Exception as ev_err:
-                        print(f"Warning: Could not add automated evidence: {ev_err}")
-                else:
-                    print("No live news found.")
-            except MemoryError:
-                raise HTTPException(
-                    status_code=413,
-                    detail="This report is too large to process. Please upload a smaller file or a shorter extract.",
-                )
-            except Exception as e:
-                print(f"Error processing {name}: {e}")
-                raise HTTPException(status_code=500, detail=f"Error processing {name}: {str(e)}")
-        else:
-            print(f"Processing text file: {name}")
-            text = content_bytes.decode("utf-8", errors="ignore")
-            try:
-                company_name = name.split(".")[0].lower().replace("_", " ")
-                print(f"Adding report to index: {name}")
-                esg_index.add_report(name=name, content=text, pages_text=[text])
-                
-                # Auto-fetch live news evidence
-                print(f"Fetching live news for: {company_name}")
-                news_text = fetch_live_news(company_name)
-                if news_text:
-                    print(f"Adding automated news evidence for: {company_name}")
-                    try:
-                        evidence_index.add_doc(
-                            title=f"{name} - Live News Check",
-                            source_type="automated_news",
-                            content=news_text,
-                            pages_text=[news_text],
-                            url="https://duckduckgo.com"
-                        )
-                    except Exception as ev_err:
-                        print(f"Warning: Could not add automated evidence: {ev_err}")
-                else:
-                    print("No live news found.")
-            except MemoryError:
-                raise HTTPException(
-                    status_code=413,
-                    detail="This report is too large to process. Please upload a smaller file or a shorter extract.",
-                )
-            except Exception as e:
-                print(f"Error processing {name}: {e}")
-                raise HTTPException(status_code=500, detail=f"Error processing {name}: {str(e)}")
+        try:
+            pages = []
+            if name.lower().endswith(".pdf"):
+                print(f"-> Extracting PDF text: {name}")
+                pages = extract_text_from_pdf(content_bytes)
+                full_text = "\n\n".join(pages)
+                if not full_text.strip():
+                    raise HTTPException(status_code=400, detail=f"No text extracted from {name}")
+            else:
+                print(f"-> Processing text file: {name}")
+                full_text = content_bytes.decode("utf-8", errors="ignore")
+                pages = [full_text]
 
-    print(f"Report upload complete. Total reports now: {len(esg_index.reports)}")
+            # Basic heuristic to get company name
+            company_name = name.lower().replace(".pdf", "").replace(".txt", "").replace("_", " ").split("-")[0].strip()
+            
+            print(f"-> Indexing report chunks: {name}")
+            esg_index.add_report(name=name, content=full_text, pages_text=pages)
+            
+            # Auto-fetch live news evidence (Parallel to index if needed, but here we'll just wait)
+            print(f"-> Searching live news for: {company_name}")
+            news_text = await fetch_live_news_async(company_name)
+            if news_text:
+                print(f"-> Indexing news evidence for: {company_name}")
+                try:
+                    evidence_index.add_doc(
+                        title=f"{name} - Live News Check",
+                        source_type="automated_news",
+                        content=news_text,
+                        pages_text=[news_text],
+                        url="https://duckduckgo.com"
+                    )
+                except Exception as ev_err:
+                    print(f"Warning: Could not add automated evidence: {ev_err}")
+            else:
+                print(f"-> No live news bits found for {company_name}")
+
+        except MemoryError:
+            print(f"CRITICAL: MemoryError processing {name}")
+            raise HTTPException(status_code=413, detail="File too large for memory limits.")
+        except Exception as e:
+            print(f"ERROR: Failed to process {name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Internal processing error: {str(e)}")
+
+    print(f"-> Success. Total reports: {len(esg_index.reports)}")
     return ReportsResponse(reports=esg_index.list_reports())
 
 
