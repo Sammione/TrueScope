@@ -1187,25 +1187,25 @@ async def verify_claims(req: VerifyClaimsRequest):
     if not esg_index.reports.get(req.report_id):
         raise HTTPException(status_code=404, detail="Report not found")
 
-    tasks = []
-    for c in (req.claims or []):
-        tasks.append(
-            _verify_claim_async(
+    # Bounded concurrency: process 2 claims at a time to stay under OpenAI TPM limits
+    sem = asyncio.Semaphore(2)
+    async def _sem_verify(c):
+        async with sem:
+            return await _verify_claim_async(
                 report_id=req.report_id,
                 claim=c,
                 include_external=req.include_external_evidence,
                 top_k=max(2, min(10, req.top_k_evidence))
             )
-        )
-    
-    results = await asyncio.gather(*tasks)
-    
+
+    results = await asyncio.gather(*[_sem_verify(c) for c in (req.claims or [])])
+
     counts = {"supported": 0, "weak": 0, "unsupported": 0, "contradictory": 0}
     for r in results:
         v = r.get("verdict")
         if v in counts:
             counts[v] += 1
-
+    
     total = max(1, len(results))
     score = (counts["weak"] * 0.5 + counts["unsupported"] * 1.0 + counts["contradictory"] * 1.2) / total
     score = float(max(0.0, min(1.0, score)))
