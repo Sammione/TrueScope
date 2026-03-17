@@ -153,6 +153,8 @@ class ESGIndex:
                 chunk = text[start:end].strip()
                 if len(chunk) > 50:
                     chunks.append((chunk, page_idx))
+                if end == n:
+                    break
                 start = end - overlap
                 if start < 0:
                     start = 0
@@ -305,12 +307,15 @@ class EvidenceIndex:
             if not p:
                 continue
             start = 0
-            while start < len(p):
-                end = min(len(p), start + chunk_size)
+            n = len(p)
+            while start < n:
+                end = min(n, start + chunk_size)
                 chunk = p[start:end].strip()
                 if chunk:
                     chunks.append((chunk, i))
-                start = max(end - overlap, end)
+                if end == n:
+                    break
+                start = end - overlap
         return chunks
 
     def add_doc(self, title: str, source_type: str, content: str, pages_text: Optional[List[str]] = None, url: Optional[str] = None) -> Dict[str, Any]:
