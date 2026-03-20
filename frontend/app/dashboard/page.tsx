@@ -496,6 +496,9 @@ export default function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
   const [claimsData, setClaimsData] = useState<any>(null);
+  const [frameworkData, setFrameworkData] = useState<any>(null);
+  const [predictionData, setPredictionData] = useState<any>(null);
+  const [carbonAnalysisData, setCarbonAnalysisData] = useState<any>(null);
   const [allReports, setAllReports] = useState<any[]>([]);
   const [isVerifyingClaims, setIsVerifyingClaims] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -565,6 +568,18 @@ export default function Dashboard() {
         compliance: complianceRes.data.compliance,
         summary: summaryRes.data.summary_md
       });
+
+      // Step 2.5: Run Enterprise Analysis
+      currentStep = "Deep Enterprise Auditing";
+      const [frameworkRes, predictionRes, carbonRes] = await Promise.all([
+        axios.post(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
+      ]);
+
+      setFrameworkData(frameworkRes.data);
+      setPredictionData(predictionRes.data);
+      setCarbonAnalysisData(carbonRes.data);
 
       // Step 3: Extract Claims
       currentStep = "Extracting Analysis Claims";
@@ -740,6 +755,12 @@ export default function Dashboard() {
             label="Metrics & Data"
             active={activeTab === "metrics"}
             onClick={() => { setActiveTab("metrics"); setIsMobileMenuOpen(false); }}
+          />
+          <SidebarItem
+            icon={TrendingDown}
+            label="Risk Prediction"
+            active={activeTab === "enterprise"}
+            onClick={() => { setActiveTab("enterprise"); setIsMobileMenuOpen(false); }}
           />
           <SidebarItem
             icon={FileText}
@@ -929,6 +950,132 @@ export default function Dashboard() {
                   </div>
                 </header>
                 <ClaimsView claimsData={claimsData} />
+              </motion.div>
+            ) : activeTab === "enterprise" ? (
+              <motion.div
+                key="enterprise"
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="w-full flex flex-col gap-12"
+              >
+                <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div>
+                    <span className="text-[10px] uppercase font-black tracking-[0.3em] text-emerald-500 mb-2 block">Enterprise Suite</span>
+                    <h2 className="text-4xl md:text-5xl font-black font-outfit tracking-tighter">Strategic Insights</h2>
+                  </div>
+                </header>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Framework Compliance */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <h3 className="text-xl font-bold font-outfit text-white">Framework Alignment (GRI, TCFD, SASB)</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                       {[
+                         { name: "GRI", data: frameworkData?.gri_alignment },
+                         { name: "TCFD", data: frameworkData?.tcfd_alignment },
+                         { name: "SASB", data: frameworkData?.sasb_alignment }
+                       ].map((fw, i) => (
+                         <div key={i} className="glass p-6 rounded-3xl border border-white/5 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <span className="font-black text-emerald-500">{fw.name}</span>
+                              <span className="text-lg font-bold">{fw.data?.score || 0}%</span>
+                            </div>
+                            <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${fw.data?.score || 0}%` }}
+                                className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981]"
+                              />
+                            </div>
+                            <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed">{fw.data?.findings}</p>
+                         </div>
+                       ))}
+                    </div>
+                    {frameworkData?.overall_audit_summary && (
+                      <div className="glass p-8 rounded-[2rem] border border-white/5 bg-emerald-500/5">
+                        <p className="text-sm text-emerald-100 italic leading-relaxed">"{frameworkData.overall_audit_summary}"</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Risk Prediction Card */}
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-bold font-outfit text-white">Predictive Risk Matrix</h3>
+                    <div className="glass p-6 rounded-[2.5rem] border border-white/5 h-full flex flex-col gap-6">
+                       <div className="flex justify-between items-center px-2">
+                          <span className="text-xs uppercase tracking-widest font-black text-slate-500">Controversy Probability</span>
+                          <span className="text-2xl font-black text-rose-500">{predictionData?.controversy_likelihood || 0}%</span>
+                       </div>
+                       <div className="space-y-4">
+                          {predictionData?.predicted_risks?.slice(0, 3).map((risk: any, i: number) => (
+                            <div key={i} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
+                               <div className="flex justify-between">
+                                 <span className="text-[11px] font-black text-white">{risk.risk_type}</span>
+                                 <span className={cn(
+                                   "text-[9px] px-2 py-0.5 rounded-full font-bold",
+                                   risk.probability === "High" ? "bg-rose-500/20 text-rose-400" : 
+                                   risk.probability === "Medium" ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"
+                                 )}>{risk.probability} Risk</span>
+                               </div>
+                               <p className="text-[10px] text-slate-400 leading-normal">{risk.justification}</p>
+                            </div>
+                          ))}
+                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Carbon Footprint Deep Dive */}
+                <div className="space-y-6">
+                   <h3 className="text-xl font-bold font-outfit text-white">Carbon Footprint Deep Decomposition</h3>
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {[
+                        { label: "Scope 1 (Direct)", data: carbonAnalysisData?.breakdown?.scope1, icon: Zap },
+                        { label: "Scope 2 (Indirect Energy)", data: carbonAnalysisData?.breakdown?.scope2, icon: Activity },
+                        { label: "Scope 3 (Supply Chain)", data: carbonAnalysisData?.breakdown?.scope3, icon: Globe },
+                      ].map((scope, i) => (
+                        <div key={i} className="glass p-8 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+                           <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
+                             <scope.icon className="w-12 h-12" />
+                           </div>
+                           <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">{scope.label}</p>
+                           <div className="flex items-baseline gap-2 mb-4">
+                              <span className="text-3xl font-black text-white">{scope.data?.value ? scope.data.value.toLocaleString() : "N/A"}</span>
+                              <span className="text-xs text-slate-500 font-bold">{scope.data?.unit || "tCO2e"}</span>
+                           </div>
+                           <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "text-[10px] font-bold px-2 py-1 rounded-lg",
+                                scope.data?.trend?.toLowerCase().includes("reduced") ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+                              )}>{scope.data?.trend || "Stable"}</span>
+                           </div>
+                        </div>
+                      ))}
+                   </div>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
+                         <div className="flex items-center gap-3 text-emerald-400 mb-2">
+                           <CheckCircle2 className="w-5 h-5" />
+                           <h4 className="font-bold">Net Zero Viability</h4>
+                         </div>
+                         <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.net_zero_viability}</p>
+                      </div>
+                      <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
+                         <div className="flex items-center gap-3 text-amber-400 mb-2">
+                           <AlertTriangle className="w-5 h-5" />
+                           <h4 className="font-bold">Intensity & Gap Analysis</h4>
+                         </div>
+                         <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.intensity_check}</p>
+                         <div className="flex flex-wrap gap-2">
+                           {carbonAnalysisData?.insights?.data_gaps?.map((gap: string, i: number) => (
+                             <span key={i} className="text-[9px] px-2 py-1 bg-white/5 border border-white/10 rounded-full text-slate-500">{gap}</span>
+                           ))}
+                         </div>
+                      </div>
+                   </div>
+                </div>
               </motion.div>
             ) : (
               <motion.div

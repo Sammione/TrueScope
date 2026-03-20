@@ -619,18 +619,21 @@ app.post("/api/compliance", async (req, res) => {
   const context = claimCandidateSnippets(report, esgIndex, 40);
   const prompt = `You are an ESG reporting compliance assistant. Based ONLY on the context below, assess whether the report discusses or references each of the following:
 - SDGs (Sustainable Development Goals)
-- GRI
-- SASB
+- GRI (Global Reporting Initiative)
+- SASB (Sustainability Accounting Standards Board)
 - IFRS S1
 - IFRS S2
+- TCFD (Task Force on Climate-related Financial Disclosures)
 
 Return a strict JSON object with this structure:
 {
   "sdgs": {"covered": boolean, "notes": string},
   "gri": {"covered": boolean, "notes": string},
   "sasb": {"covered": boolean, "notes": string},
+  "tcfd": {"covered": boolean, "notes": string},
   "ifrs_s1": {"covered": boolean, "notes": string},
-  "ifrs_s2": {"covered": boolean, "notes": string}
+  "ifrs_s2": {"covered": boolean, "notes": string},
+  "compliance_score": number (0-100)
 }
 
 If you are not sure, set covered to false and explain briefly in notes. Respond with JSON only, no extra text.
@@ -641,6 +644,91 @@ ${context}`;
   const raw = await callOpenAIChat(prompt, true);
   const compliance = parseStrictJson(raw) || {};
   res.json({ report_id, compliance });
+});
+
+// --- NEW ENTERPRISE ENDPOINTS ---
+
+app.post("/api/frameworks", async (req, res) => {
+  const { report_id } = req.body;
+  const report = esgIndex.reports[report_id];
+  if (!report) return res.status(404).json({ detail: "Report not found" });
+
+  const context = claimCandidateSnippets(report, esgIndex, 50);
+  const prompt = `You are a Senior ESG Auditor. Perform a deep alignment check against GRI, TCFD, and SASB.
+For each framework, identify specific sections matched and missing requirements.
+
+Return a strict JSON:
+{
+  "gri_alignment": { "score": number, "findings": string, "missing": string[] },
+  "tcfd_alignment": { "score": number, "findings": string, "missing": string[] },
+  "sasb_alignment": { "score": number, "findings": string, "missing": string[] },
+  "overall_audit_summary": string
+}
+
+Context:
+${context}`;
+
+  const raw = await callOpenAIChat(prompt, true);
+  const data = parseStrictJson(raw) || {};
+  res.json({ report_id, ...data });
+});
+
+app.post("/api/risk/predict", async (req, res) => {
+  const { report_id } = req.body;
+  const report = esgIndex.reports[report_id];
+  if (!report) return res.status(404).json({ detail: "Report not found" });
+
+  const context = claimCandidateSnippets(report, esgIndex, 50);
+  const prompt = `You are an ESG Risk Forecaster. Analyze the provided context to predict potential future controversies or regulatory issues.
+Look for: vague targets, missing scope 1/2/3 data, lack of independent verification, or sensitive industry exposure.
+
+Return a strict JSON:
+{
+  "predicted_risks": [
+    { "risk_type": string, "probability": "Low"|"Medium"|"High", "justification": string, "regulatory_impact": string }
+  ],
+  "controversy_likelihood": number (0-100),
+  "early_warning_signals": string[]
+}
+
+Context:
+${context}`;
+
+  const raw = await callOpenAIChat(prompt, true);
+  const data = parseStrictJson(raw) || {};
+  res.json({ report_id, ...data });
+});
+
+app.post("/api/carbon/analysis", async (req, res) => {
+  const { report_id } = req.body;
+  const report = esgIndex.reports[report_id];
+  if (!report) return res.status(404).json({ detail: "Report not found" });
+
+  const context = claimCandidateSnippets(report, esgIndex, 50);
+  const prompt = `You are a Carbon Accounting Expert. Perform a deep analysis of the carbon footprint.
+Extract Scope 1, 2, and 3 data and provide insights on transition risk, net-zero alignment, and data quality.
+
+Return a strict JSON:
+{
+  "breakdown": {
+    "scope1": { "value": number|null, "unit": string, "trend": string },
+    "scope2": { "value": number|null, "unit": string, "trend": string },
+    "scope3": { "value": number|null, "unit": string, "trend": string }
+  },
+  "insights": {
+    "intensity_check": string,
+    "net_zero_viability": string,
+    "data_gaps": string[]
+  },
+  "paris_alignment_score": number (0-100)
+}
+
+Context:
+${context}`;
+
+  const raw = await callOpenAIChat(prompt, true);
+  const data = parseStrictJson(raw) || {};
+  res.json({ report_id, ...data });
 });
 
 app.post("/api/risk", async (req, res) => {
