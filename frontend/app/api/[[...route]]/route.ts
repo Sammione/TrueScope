@@ -1,20 +1,36 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { OpenAI } from 'openai';
-import pdf from 'pdf-parse';
+// @ts-ignore
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 import { v4 as uuidv4 } from 'uuid';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Increase timeout for heavy analysis
 
 // ---------------------------
 // Config
 // ---------------------------
 const api_key = process.env.OPENAI_API_KEY;
-const client = new OpenAI({ apiKey: api_key });
+const client = new OpenAI({ apiKey: api_key || 'missing' });
 const GEN_MODEL = "gpt-4o";
 const EMBED_MODEL = "text-embedding-3-small";
 
 // ---------------------------
 // In-Memory Global State (Note: Resets on cold start!)
 // ---------------------------
-const globalState: any = global as any;
+interface ESGIndex {
+  chunks: Array<{
+    reportId: string;
+    reportName: string;
+    text: string;
+    page: number;
+    embedding: number[];
+  }>;
+  reports: Record<string, { id: string; name: string; uploadedAt: string }>;
+}
+
+const globalState = global as unknown as { esgIndex: ESGIndex };
 if (!globalState.esgIndex) {
   globalState.esgIndex = { chunks: [], reports: {} };
 }
@@ -66,18 +82,18 @@ function chunkPages(pages: string[], chunkChars = 1600, overlap = 150) {
 }
 
 function claimCandidateSnippets(report_id: string, max_snippets = 30) {
-  const chunks = esgIndex.chunks.filter((c: any) => c.reportId === report_id);
+  const chunks = esgIndex.chunks.filter((c) => c.reportId === report_id);
   const keywords = ["net zero", "carbon", "reduction", "scope", "target", "compliance", "verification", "verified", "diversity", "waste", "water"];
   
-  const scored = chunks.map((c: any) => {
+  const scored = chunks.map((c) => {
     let score = 0;
     const t = c.text.toLowerCase();
     keywords.forEach(kw => { if (t.includes(kw)) score++; });
     if (/\d+%/.test(t)) score += 2;
     return { score, chunk: c };
-  }).sort((a: any, b: any) => b.score - a.score);
+  }).sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, max_snippets).map((s: any) => `[Page ${s.chunk.page}] ${s.chunk.text}`).join("\n\n");
+  return scored.slice(0, max_snippets).map((s) => `[Page ${s.chunk.page}] ${s.chunk.text}`).join("\n\n");
 }
 
 async function callOpenAIChat(prompt: string, jsonMode = false) {
@@ -92,7 +108,7 @@ async function callOpenAIChat(prompt: string, jsonMode = false) {
 // ---------------------------
 // Route Handler
 // ---------------------------
-export async function POST(req: NextRequest, { params }: any) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ route?: string[] }> }) {
   const p = await params;
   const path = p.route?.join('/') || '';
 
@@ -102,7 +118,7 @@ export async function POST(req: NextRequest, { params }: any) {
     // ---------------------------
     if (path === 'reports') {
       const data = await req.formData();
-      const files: File[] = data.getAll('files') as any;
+      const files: File[] = data.getAll('files') as unknown as File[];
       
       for (const file of files) {
         const buffer = Buffer.from(await file.arrayBuffer());
@@ -211,23 +227,24 @@ export async function POST(req: NextRequest, { params }: any) {
       const query = body.question;
       const emb = await embedText(query);
       const searchResults = esgIndex.chunks
-        .map((c: any) => ({ ...c, score: dotProduct(emb, c.embedding) }))
-        .sort((a: any, b: any) => b.score - a.score)
+        .map((c) => ({ ...c, score: dotProduct(emb, c.embedding) }))
+        .sort((a, b) => b.score - a.score)
         .slice(0, 5);
       
-      const ctx = searchResults.map((s: any) => s.text).join("\n\n");
+      const ctx = searchResults.map((s) => s.text).join("\n\n");
       const answer = await callOpenAIChat(`Answer the question based on this ESG context: ${ctx}. Question: ${query}`);
       return NextResponse.json({ answer, citations: searchResults });
     }
 
     return NextResponse.json({ detail: "Route not found" }, { status: 404 });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("API Route Error:", error);
-    return NextResponse.json({ detail: error.message }, { status: 500 });
+    return NextResponse.json({ detail: errorMessage }, { status: 500 });
   }
 }
 
-export async function GET(req: NextRequest, { params }: any) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ route?: string[] }> }) {
   const p = await params;
   const path = p.route?.join('/') || '';
 

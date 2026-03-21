@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
@@ -13,15 +14,14 @@ import {
   AlertTriangle,
   ChevronRight,
   RefreshCw,
-  Plus,
   CheckCircle2,
-  XCircle,
   Menu,
   X,
   Loader2,
   Leaf,
   Globe,
-  TrendingDown
+  TrendingDown,
+  XCircle
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
@@ -171,7 +171,7 @@ const FluffGauge = ({ fluffRatio }: { fluffRatio: string | undefined }) => {
 // --- Chat Component ---
 
 const ChatView = ({ reportId }: { reportId: string | null }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string, citations?: any[] }[]>([
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string, citations?: Array<{ page: number, snippet: string }> }[]>([
     { role: "assistant", content: "Hello! I've analyzed the report. Ask me anything about specific emissions, targets, or potential greenwashing risks." }
   ]);
   const [input, setInput] = useState("");
@@ -232,9 +232,9 @@ const ChatView = ({ reportId }: { reportId: string | null }) => {
               {msg.citations && msg.citations.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-white/10 space-y-2">
                   <p className="text-[10px] uppercase tracking-widest font-bold opacity-50">Sources</p>
-                  {msg.citations.map((c: any, ci: number) => (
+                  {msg.citations.map((c, ci: number) => (
                     <div key={ci} className="text-[10px] p-2 rounded bg-black/20 text-slate-400 font-mono">
-                      Page {c.page}: "...{c.snippet.slice(0, 100)}..."
+                      Page {c.page}: &quot;...{c.snippet.slice(0, 100)}...&quot;
                     </div>
                   ))}
                 </div>
@@ -279,7 +279,7 @@ const ChatView = ({ reportId }: { reportId: string | null }) => {
 
 // --- ESG Radar Chart ---
 
-const ESGRadarChart = ({ data }: { data: any }) => {
+const ESGRadarChart = ({ data }: { data: { e: number, s: number, g: number, transparency: number, verification: number } }) => {
   const radarData = [
     { subject: 'Environmental', A: data.e || 20, fullMark: 100 },
     { subject: 'Social', A: data.s || 20, fullMark: 100 },
@@ -309,7 +309,8 @@ const ESGRadarChart = ({ data }: { data: any }) => {
 
 // --- Claims View Component ---
 
-const ClaimsView = ({ claimsData }: { claimsData: any }) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ClaimsView = ({ claimsData }: any) => {
   if (!claimsData) return <div className="text-center p-12 text-slate-500">No claims analysis available.</div>;
 
   return (
@@ -369,7 +370,7 @@ const ClaimsView = ({ claimsData }: { claimsData: any }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-white/5">
               <div className="space-y-2">
                 <p className="text-[10px] uppercase tracking-widest font-black text-slate-500">Analysis Rationale</p>
-                <p className="text-xs text-slate-300 leading-relaxed italic">"{item.rationale}"</p>
+                <p className="text-xs text-slate-300 leading-relaxed italic">&quot;{item.rationale}&quot;</p>
                 {item.missing && (
                   <p className="text-[10px] text-slate-500"><span className="font-bold text-rose-400/70">Missing:</span> {item.missing}</p>
                 )}
@@ -395,14 +396,15 @@ const ClaimsView = ({ claimsData }: { claimsData: any }) => {
 
 // --- Reports View ---
 
-const ReportsView = ({ allReports, onSelect }: { allReports: any[], onSelect: (reportId: string) => void }) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReportsView = ({ allReports, onSelect }: any) => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-black font-outfit tracking-tighter">Your Library</h2>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {allReports.map((report, i) => (
+        {allReports.map((report: any, i: number) => (
           <motion.div
             key={report.id}
             initial={{ opacity: 0, y: 20 }}
@@ -437,7 +439,8 @@ const ReportsView = ({ allReports, onSelect }: { allReports: any[], onSelect: (r
 
 // --- Metrics View ---
 
-const MetricsView = ({ metrics, risk }: { metrics: any, risk: any }) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const MetricsView = ({ metrics, risk }: any) => {
   if (!metrics) return null;
 
   const sections = [
@@ -506,7 +509,7 @@ export default function Dashboard() {
 
   const fetchReports = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/reports`);
+      const res = await axios.get<{ reports: any[] }>(`${API_URL}/api/reports`);
       setAllReports(res.data.reports);
     } catch (e) {
       console.error("Failed to fetch reports:", e);
@@ -546,7 +549,7 @@ export default function Dashboard() {
     // Step 1: Upload
     let currentStep = "Uploading Report";
     try {
-      const uploadRes = await axios.post(`${API_URL}/api/reports`, formData, { timeout: 120000 });
+      const uploadRes = await axios.post<{ reports: any[] }>(`${API_URL}/api/reports`, formData, { timeout: 120000 });
       const reports = uploadRes.data.reports;
       const newReportId = reports[reports.length - 1].id;
       setReportId(newReportId);
@@ -556,14 +559,14 @@ export default function Dashboard() {
       // Step 2: Run Analysis in Parallel
       currentStep = "Generating Risk & ESG Metrics";
       const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
-        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
+        axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<{ summary_md: string }>(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
       setAnalysisData({
-        risk: riskRes.data,
+        risk: riskRes.data.risk,
         metrics: metricsRes.data.metrics,
         compliance: complianceRes.data.compliance,
         summary: summaryRes.data.summary_md
@@ -572,9 +575,9 @@ export default function Dashboard() {
       // Step 2.5: Run Enterprise Analysis
       currentStep = "Deep Enterprise Auditing";
       const [frameworkRes, predictionRes, carbonRes] = await Promise.all([
-        axios.post(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
+        axios.post<any>(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<any>(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<any>(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
       setFrameworkData(frameworkRes.data);
@@ -584,11 +587,11 @@ export default function Dashboard() {
       // Step 3: Extract Claims
       currentStep = "Extracting Analysis Claims";
       setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+      const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
       
       // Step 4: Verify Claims
       currentStep = "Verifying Claims Against Evidence";
-      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+      const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
         report_id: newReportId,
         claims: claimsExtract.data.claims,
         include_external_evidence: true
@@ -598,11 +601,12 @@ export default function Dashboard() {
       await fetchReports();
       setIsVerifyingClaims(false);
 
-    } catch (error: any) {
-      console.error(`Error during ${currentStep}:`, error);
-      const detail = error.response?.data?.detail 
-        ? JSON.stringify(error.response.data.detail) 
-        : (error.response?.data ? JSON.stringify(error.response.data) : error.message);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: any } }, message: string };
+      console.error(`Error during ${currentStep}:`, err);
+      const detail = err.response?.data?.detail 
+        ? JSON.stringify(err.response.data.detail) 
+        : (err.response?.data ? JSON.stringify(err.response.data) : err.message);
       
       alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}\n\nPlease check if your backend is running or reduce document size.`);
       setFile(null); // Reset
@@ -616,7 +620,7 @@ export default function Dashboard() {
   const loadSampleReport = async () => {
     setIsUploading(true);
     try {
-      const res = await axios.post(`${API_URL}/api/sample-report`);
+      const res = await axios.post<{ reports: any[] }>(`${API_URL}/api/sample-report`);
       const reports = res.data.reports;
       const newReportId = reports[reports.length - 1].id;
       setReportId(newReportId);
@@ -625,14 +629,14 @@ export default function Dashboard() {
       setIsAnalyzing(true);
 
       const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
-        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }),
-        axios.post(`${API_URL}/api/summary`, { report_id: newReportId })
+        axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: newReportId }),
+        axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: newReportId }),
+        axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: newReportId }),
+        axios.post<{ summary_md: string }>(`${API_URL}/api/summary`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
-        risk: riskRes.data,
+        risk: riskRes.data.risk,
         metrics: metricsRes.data.metrics,
         compliance: complianceRes.data.compliance,
         summary: summaryRes.data.summary_md
@@ -640,8 +644,8 @@ export default function Dashboard() {
 
       // Claims for sample
       setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 8 });
-      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+      const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 8 });
+      const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
         report_id: newReportId,
         claims: claimsExtract.data.claims,
         include_external_evidence: false
@@ -673,11 +677,13 @@ export default function Dashboard() {
     content += `- Unsupported/Contradictory: ${(claimsData.summary.unsupported || 0) + (claimsData.summary.contradictory || 0)}\n\n`;
 
     content += `## Claim Details\n`;
-    claimsData.results.forEach((r: any, i: number) => {
-      content += `### Claim ${i + 1}: ${r.verdict.toUpperCase()}\n`;
-      content += `Text: "${r.claim.text}"\n`;
-      content += `Rationale: ${r.rationale}\n\n`;
-    });
+    if (claimsData) {
+      claimsData.results.forEach((r: any, i: number) => {
+        content += `### Claim ${i + 1}: ${r.verdict.toUpperCase()}\n`;
+        content += `Text: "${r.claim.text}"\n`;
+        content += `Rationale: ${r.rationale}\n\n`;
+      });
+    }
 
     const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -881,18 +887,19 @@ export default function Dashboard() {
             >
               <ReportsView
                 allReports={allReports}
-                onSelect={async (id) => {
+                onSelect={async (id: any) => {
                   setIsAnalyzing(true);
                   setActiveTab("dashboard");
                   const [riskRes, metricsRes, complianceRes] = await Promise.all([
-                    axios.post(`${API_URL}/api/risk`, { report_id: id }),
-                    axios.post(`${API_URL}/api/metrics`, { report_id: id }),
-                    axios.post(`${API_URL}/api/compliance`, { report_id: id })
+                    axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: id }),
+                    axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: id }),
+                    axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: id })
                   ]);
                   setAnalysisData({
-                    risk: riskRes.data,
+                    risk: riskRes.data.risk,
                     metrics: metricsRes.data.metrics,
-                    compliance: complianceRes.data.compliance
+                    compliance: complianceRes.data.compliance,
+                    summary: "" // Summary not fetched here, could be added if needed
                   });
                   setReportId(id);
                   setIsAnalyzing(false);
@@ -1008,7 +1015,7 @@ export default function Dashboard() {
                           <span className="text-2xl font-black text-rose-500">{predictionData?.controversy_likelihood || 0}%</span>
                        </div>
                        <div className="space-y-4">
-                          {predictionData?.predicted_risks?.slice(0, 3).map((risk: any, i: number) => (
+                          {(predictionData?.predicted_risks || []).slice(0, 3).map((risk: any, i: number) => (
                             <div key={i} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
                                <div className="flex justify-between">
                                  <span className="text-[11px] font-black text-white">{risk.risk_type}</span>
@@ -1152,7 +1159,7 @@ export default function Dashboard() {
                             contentStyle={{ backgroundColor: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
                           />
                           <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                            {metricsChartData.map((entry: any, index: number) => (
+                            {metricsChartData.map((entry, index: number) => (
                               <Cell key={`cell-${index}`} fill={index === 0 ? '#34d399' : index === 1 ? '#10b981' : '#059669'} />
                             ))}
                           </Bar>
