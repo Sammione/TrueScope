@@ -535,6 +535,13 @@ export default function Dashboard() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
+
+    // Vercel Serverless Function limit check (4.5 MB)
+    if (selectedFile.size > 4.5 * 1024 * 1024) {
+      alert("⚠️ File too large for Vercel functions (>4.5MB).\n\nPlease compress your PDF or use the standalone backend for large documents.");
+      return;
+    }
+    
     executeUpload(selectedFile);
   };
 
@@ -604,11 +611,13 @@ export default function Dashboard() {
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: any } }, message: string };
       console.error(`Error during ${currentStep}:`, err);
-      const detail = err.response?.data?.detail 
-        ? JSON.stringify(err.response.data.detail) 
-        : (err.response?.data ? JSON.stringify(err.response.data) : err.message);
+      const detail = err.response?.status === 413 
+        ? "Vercel platform limit (4.5 MB) exceeded. Please compress the PDF or deploy to a standalone server."
+        : (err.response?.data?.detail 
+            ? JSON.stringify(err.response.data.detail) 
+            : (err.response?.data ? JSON.stringify(err.response.data) : err.message));
       
-      alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}\n\nPlease check if your backend is running or reduce document size.`);
+      alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}`);
       setFile(null); // Reset
     } finally {
       setIsAnalyzing(false);

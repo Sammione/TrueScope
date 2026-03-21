@@ -8,6 +8,15 @@ import { v4 as uuidv4 } from 'uuid';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Increase timeout for heavy analysis
 
+// Note: Config block sometimes only works in pages API, but used as a hint for Vercel functions here.
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+};
+
 // ---------------------------
 // Config
 // ---------------------------
