@@ -3,7 +3,7 @@ import cors from 'cors';
 import multer from 'multer';
 import { OpenAI } from 'openai';
 import dotenv from 'dotenv';
-import pdf from 'pdf-parse';
+import pdf from 'pdf-parse/lib/pdf-parse.js';
 import { v4 as uuidv4 } from 'uuid';
 import morgan from 'morgan';
 import axios from 'axios';
@@ -401,9 +401,13 @@ const evidenceIndex = new EvidenceIndex();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(morgan('dev'));
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
 
 // ---------------------------
 // Endpoints
