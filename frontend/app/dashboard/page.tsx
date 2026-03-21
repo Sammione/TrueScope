@@ -620,10 +620,10 @@ export default function Dashboard() {
       ]);
 
       setAnalysisData({
-        risk: riskRes.data.risk,
-        metrics: metricsRes.data.metrics,
-        compliance: complianceRes.data.compliance,
-        summary: summaryRes.data.summary_md
+        risk: riskRes.data,
+        metrics: metricsRes.data.metrics || metricsRes.data,
+        compliance: complianceRes.data.compliance || complianceRes.data,
+        summary: summaryRes.data.summary_md || summaryRes.data.summary || ""
       });
 
       // Step 2.5: Run Enterprise Analysis (SEQUENTIAL for stability)
@@ -1020,10 +1020,10 @@ export default function Dashboard() {
                     axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: id })
                   ]);
                   setAnalysisData({
-                    risk: riskRes.data.risk,
-                    metrics: metricsRes.data.metrics,
-                    compliance: complianceRes.data.compliance,
-                    summary: "" // Summary not fetched here, could be added if needed
+                    risk: riskRes.data,
+                    metrics: metricsRes.data.metrics || metricsRes.data,
+                    compliance: complianceRes.data.compliance || complianceRes.data,
+                    summary: "" 
                   });
                   setReportId(id);
                   setIsAnalyzing(false);
