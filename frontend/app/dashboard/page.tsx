@@ -608,8 +608,8 @@ export default function Dashboard() {
       await fetchReports();
       setIsVerifyingClaims(false);
 
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: any } }, message: string };
+    } catch (error: any) {
+      const err = error as { response?: { status?: number, data?: { detail?: any } }, message: string };
       console.error(`Error during ${currentStep}:`, err);
       const detail = err.response?.status === 413 
         ? "Vercel platform limit (4.5 MB) exceeded. Please compress the PDF or deploy to a standalone server."
