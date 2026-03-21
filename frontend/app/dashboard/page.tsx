@@ -543,7 +543,7 @@ export default function Dashboard() {
   const extractTextFromPDF = async (file: File): Promise<string> => {
     const arrayBuffer = await file.arrayBuffer();
     // @ts-ignore
-    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    const pdfjsLib = window['pdfjsLib'];
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
     
     const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -585,6 +585,7 @@ export default function Dashboard() {
     setIsUploading(true);
     setAnalysisData(null);
     let currentStep = "Processing Extracted Text";
+    console.log(`Extracted text size: ${text.length} characters`);
     try {
       const uploadRes = await axios.post(`${API_URL}/api/reports`, { 
         name: fileName, 
@@ -601,7 +602,8 @@ export default function Dashboard() {
       await runAnalysisFlow(newReportId);
     } catch (error: any) {
       console.error(error);
-      alert("Failed to upload extracted text.");
+      const msg = error.response?.data?.detail || error.message;
+      alert(`Failed to upload extracted text: ${msg}`);
     } finally {
       setIsUploading(false);
     }
