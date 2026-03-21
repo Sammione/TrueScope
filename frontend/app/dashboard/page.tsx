@@ -626,15 +626,17 @@ export default function Dashboard() {
         summary: summaryRes.data.summary_md
       });
 
-      currentStep = "Deep Enterprise Auditing";
-      const [frameworkRes, predictionRes, carbonRes] = await Promise.all([
-        axios.post(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
-      ]);
-
+      // Step 2.5: Run Enterprise Analysis (SEQUENTIAL for stability)
+      currentStep = "Enterprise Audit: Frameworks";
+      const frameworkRes = await axios.post<any>(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 });
       setFrameworkData(frameworkRes.data);
+
+      currentStep = "Enterprise Audit: Risk Forecast";
+      const predictionRes = await axios.post<any>(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 });
       setPredictionData(predictionRes.data);
+
+      currentStep = "Enterprise Audit: Carbon Analysis";
+      const carbonRes = await axios.post<any>(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 });
       setCarbonAnalysisData(carbonRes.data);
 
       currentStep = "Verifying Analysis Claims";
