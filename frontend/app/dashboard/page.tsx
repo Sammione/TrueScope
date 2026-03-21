@@ -518,6 +518,14 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchReports();
+    // Load pdf.js from CDN
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
   }, []);
 
   // Animation variants
@@ -532,17 +540,120 @@ export default function Dashboard() {
   };
 
 
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    // @ts-ignore
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+    
+    const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = "";
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(" ");
+      fullText += pageText + "\n";
+    }
+    return fullText;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (!selectedFile) return;
 
-    // Vercel Serverless Function limit check (4.5 MB)
-    if (selectedFile.size > 4.5 * 1024 * 1024) {
-      alert("⚠️ File too large for Vercel functions (>4.5MB).\n\nPlease compress your PDF or use the standalone backend for large documents.");
-      return;
+    if (selectedFile.name.endsWith(".pdf")) {
+      setIsUploading(true);
+      try {
+        const text = await extractTextFromPDF(selectedFile);
+        executeTextUpload(text, selectedFile.name);
+      } catch (err) {
+        console.error("Browser-side PDF extraction failed:", err);
+        // Fallback to direct upload if under the limit
+        if (selectedFile.size < 4.5 * 1024 * 1024) {
+          executeUpload(selectedFile);
+        } else {
+          alert("Failed to process large PDF. File size exceeds Vercel's 4.5MB limit.");
+          setIsUploading(false);
+        }
+      }
+    } else {
+      executeUpload(selectedFile);
     }
-    
-    executeUpload(selectedFile);
+  };
+
+  const executeTextUpload = async (text: string, fileName: string) => {
+    setIsUploading(true);
+    setAnalysisData(null);
+    let currentStep = "Processing Extracted Text";
+    try {
+      const uploadRes = await axios.post(`${API_URL}/api/reports`, { 
+        name: fileName, 
+        text: text 
+      }, { timeout: 120000 });
+      
+      const reports = uploadRes.data.reports;
+      const newReportId = reports[reports.length - 1].id;
+      setReportId(newReportId);
+      setIsUploading(false);
+      setIsAnalyzing(true);
+      
+      // Re-use logic for analysis
+      await runAnalysisFlow(newReportId);
+    } catch (error: any) {
+      console.error(error);
+      alert("Failed to upload extracted text.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const runAnalysisFlow = async (newReportId: string) => {
+    let currentStep = "Generating Risk & ESG Metrics";
+    try {
+      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
+      ]);
+
+      setAnalysisData({
+        risk: riskRes.data.risk,
+        metrics: metricsRes.data.metrics,
+        compliance: complianceRes.data.compliance,
+        summary: summaryRes.data.summary_md
+      });
+
+      currentStep = "Deep Enterprise Auditing";
+      const [frameworkRes, predictionRes, carbonRes] = await Promise.all([
+        axios.post(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
+      ]);
+
+      setFrameworkData(frameworkRes.data);
+      setPredictionData(predictionRes.data);
+      setCarbonAnalysisData(carbonRes.data);
+
+      currentStep = "Verifying Analysis Claims";
+      setIsVerifyingClaims(true);
+      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+        report_id: newReportId,
+        claims: claimsExtract.data.claims,
+        include_external_evidence: true
+      }, { timeout: 180000 });
+      
+      setClaimsData(claimsVerify.data);
+      await fetchReports();
+      setIsVerifyingClaims(false);
+      setIsAnalyzing(false);
+      setActiveTab("dashboard");
+    } catch (err) {
+      console.error(err);
+      alert(`Analysis failed at step: [${currentStep}]`);
+      setIsAnalyzing(false);
+    }
   };
 
   const executeUpload = async (fileToUpload: File) => {

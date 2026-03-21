@@ -117,38 +117,52 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
     // /api/reports (Upload)
     // ---------------------------
     if (path === 'reports') {
-      const data = await req.formData();
-      const files: File[] = data.getAll('files') as unknown as File[];
-      
-      for (const file of files) {
-        const buffer = Buffer.from(await file.arrayBuffer());
-        let fullText = "";
-        let pagesText: string[] = [];
+      const contentType = req.headers.get('content-type') || "";
+      let reports_to_process: Array<{ name: string, text: string, pagesText?: string[] }> = [];
 
-        if (file.name.endsWith('.pdf')) {
-          const doc = await pdf(buffer);
-          fullText = doc.text;
-          pagesText = [fullText]; // pdf-parse basic
-        } else {
-          fullText = buffer.toString('utf-8');
-          pagesText = [fullText];
+      if (contentType.includes('application/json')) {
+        const body = await req.json();
+        reports_to_process = [{ name: body.name || "Extracted Report", text: body.text, pagesText: body.pagesText || [body.text] }];
+      } else {
+        const data = await req.formData();
+        const files: File[] = data.getAll('files') as unknown as File[];
+        
+        for (const file of files) {
+          const buffer = Buffer.from(await file.arrayBuffer());
+          let fullText = "";
+          let pagesText: string[] = [];
+
+          if (file.name.endsWith('.pdf')) {
+            const doc = await pdf(buffer);
+            fullText = doc.text;
+            pagesText = [fullText]; 
+          } else {
+            fullText = buffer.toString('utf-8');
+            pagesText = [fullText];
+          }
+          reports_to_process.push({ name: file.name, text: fullText, pagesText });
         }
-
+      }
+      
+      const results = [];
+      for (const item of reports_to_process) {
         const reportId = `rep_${uuidv4()}`;
-        const chunks = chunkPages(pagesText);
+        const chunks = chunkPages(item.pagesText || [item.text]);
         const embeddings = await embedTexts(chunks.map(c => c.text));
 
         chunks.forEach((chunk, idx) => {
           esgIndex.chunks.push({
             reportId,
-            reportName: file.name,
+            reportName: item.name,
             text: chunk.text,
             page: chunk.page,
             embedding: embeddings[idx]
           });
         });
 
-        esgIndex.reports[reportId] = { id: reportId, name: file.name, uploadedAt: new Date().toISOString() };
+        const reportMeta = { id: reportId, name: item.name, uploadedAt: new Date().toISOString() };
+        esgIndex.reports[reportId] = reportMeta;
+        results.push(reportMeta);
       }
       return NextResponse.json({ reports: Object.values(esgIndex.reports) });
     }
