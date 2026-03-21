@@ -441,48 +441,52 @@ async function fetchLiveNews(companyName) {
 }
 
 app.post("/api/reports", upload.array('files'), async (req, res) => {
-  if (!req.files || req.files.length === 0) {
-    return res.status(400).json({ detail: "No files uploaded" });
+  const isJson = req.is('application/json');
+  let reports_to_process = [];
+
+  if (isJson) {
+      if (req.body.text) {
+          reports_to_process = [{ 
+              name: req.body.name || "Extracted Report", 
+              text: req.body.text, 
+              pagesText: [req.body.text] 
+          }];
+      }
+  } else {
+      if (!req.files || req.files.length === 0) {
+          return res.status(400).json({ detail: "No files uploaded" });
+      }
+      // Handle files (as it was)
+      for (const file of req.files) {
+          const name = file.originalname;
+          const contentBuffer = file.buffer;
+          let pages = [];
+          let fullText = "";
+
+          if (name.toLowerCase().endsWith(".pdf")) {
+              const data = await pdf(contentBuffer);
+              fullText = data.text;
+              pages = [fullText];
+          } else {
+              fullText = contentBuffer.toString('utf-8');
+              pages = [fullText];
+          }
+          reports_to_process.push({ name, text: fullText, pagesText: pages });
+      }
+  }
+
+  if (reports_to_process.length === 0) {
+      return res.status(400).json({ detail: "No reports or text content found" });
   }
 
   const processedReports = [];
-  for (const file of req.files) {
-    const name = file.originalname;
-    console.log(`Processing report: ${name}`);
-    const contentBuffer = file.buffer;
-
-    try {
-      let pages = [];
-      let fullText = "";
-
-      if (name.toLowerCase().endsWith(".pdf")) {
-        const data = await pdf(contentBuffer);
-        // Basic split by page if needed, but pdf-parse returns one block.
-        // We can approximate by split if needed or just use the whole text.
-        fullText = data.text;
-        pages = [fullText]; // pdf-parse is one-shot, but you could split by form feeds if available
-      } else {
-        fullText = contentBuffer.toString('utf-8');
-        pages = [fullText];
+  for (const item of reports_to_process) {
+      try {
+          const reportMeta = await esgIndex.addReport(item.name, item.text, item.pagesText);
+          processedReports.push(reportMeta);
+      } catch (e) {
+          console.error(`Failed to process ${item.name}:`, e);
       }
-
-      if (!fullText.trim()) {
-        continue;
-      }
-
-      const companyName = name.toLowerCase().replace(".pdf", "").replace(".txt", "").replace(/_/g, " ").split("-")[0].trim();
-      
-      const reportMeta = await esgIndex.addReport(name, fullText, pages);
-      processedReports.push(reportMeta);
-
-      // Fetch live news (optional/async)
-      const newsText = await fetchLiveNews(companyName);
-      if (newsText) {
-        await evidenceIndex.addDoc(`${name} - Live News Check`, 'automated_news', newsText, [newsText], "https://duckduckgo.com");
-      }
-    } catch (e) {
-      console.error(`Failed to process ${name}:`, e);
-    }
   }
 
   res.json({ reports: esgIndex.listReports() });
