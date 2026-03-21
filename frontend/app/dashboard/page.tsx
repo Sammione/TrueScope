@@ -43,7 +43,7 @@ import {
 } from "recharts";
 
 const isLocal = typeof window !== "undefined" && window.location.hostname === "localhost";
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (isLocal ? "http://localhost:8000" : "/api"); // Changed here to use internal /api on Vercel
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (isLocal ? "http://localhost:8000" : ""); // Empty string for internal Vercel routes
 
 
 // --- Utilities ---
