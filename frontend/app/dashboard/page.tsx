@@ -43,7 +43,8 @@ import {
 } from "recharts";
 
 const isLocal = typeof window !== "undefined" && window.location.hostname === "localhost";
-const API_URL = process.env.NEXT_PUBLIC_API_URL || (isLocal ? "http://localhost:8000" : ""); // Empty string for internal Vercel routes
+const DEFAULT_API_URL = "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || DEFAULT_API_URL;
 
 
 // --- Utilities ---
@@ -545,7 +546,7 @@ export default function Dashboard() {
     // @ts-ignore
     const pdfjsLib = window['pdfjsLib'];
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
-    
+
     const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     let fullText = "";
     for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -587,17 +588,17 @@ export default function Dashboard() {
     let currentStep = "Processing Extracted Text";
     console.log(`Extracted text size: ${text.length} characters`);
     try {
-      const uploadRes = await axios.post(`${API_URL}/api/reports`, { 
-        name: fileName, 
-        text: text 
+      const uploadRes = await axios.post(`${API_URL}/api/reports`, {
+        name: fileName,
+        text: text
       }, { timeout: 120000 });
-      
+
       const reports = uploadRes.data.reports;
       const newReportId = reports[reports.length - 1].id;
       setReportId(newReportId);
       setIsUploading(false);
       setIsAnalyzing(true);
-      
+
       // Re-use logic for analysis
       await runAnalysisFlow(newReportId);
     } catch (error: any) {
@@ -647,7 +648,7 @@ export default function Dashboard() {
         claims: claimsExtract.data.claims,
         include_external_evidence: true
       }, { timeout: 180000 });
-      
+
       setClaimsData(claimsVerify.data);
       await fetchReports();
       setIsVerifyingClaims(false);
@@ -710,7 +711,7 @@ export default function Dashboard() {
       currentStep = "Extracting Analysis Claims";
       setIsVerifyingClaims(true);
       const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
-      
+
       // Step 4: Verify Claims
       currentStep = "Verifying Claims Against Evidence";
       const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
@@ -718,7 +719,7 @@ export default function Dashboard() {
         claims: claimsExtract.data.claims,
         include_external_evidence: true
       }, { timeout: 180000 }); // Verification is heaviest, give it 3 min
-      
+
       setClaimsData(claimsVerify.data);
       await fetchReports();
       setIsVerifyingClaims(false);
@@ -726,12 +727,12 @@ export default function Dashboard() {
     } catch (error: any) {
       const err = error as { response?: { status?: number, data?: { detail?: any } }, message: string };
       console.error(`Error during ${currentStep}:`, err);
-      const detail = err.response?.status === 413 
+      const detail = err.response?.status === 413
         ? "Vercel platform limit (4.5 MB) exceeded. Please compress the PDF or deploy to a standalone server."
-        : (err.response?.data?.detail 
-            ? JSON.stringify(err.response.data.detail) 
-            : (err.response?.data ? JSON.stringify(err.response.data) : err.message));
-      
+        : (err.response?.data?.detail
+          ? JSON.stringify(err.response.data.detail)
+          : (err.response?.data ? JSON.stringify(err.response.data) : err.message));
+
       alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}`);
       setFile(null); // Reset
     } finally {
@@ -1023,7 +1024,7 @@ export default function Dashboard() {
                     risk: riskRes.data,
                     metrics: metricsRes.data.metrics || metricsRes.data,
                     compliance: complianceRes.data.compliance || complianceRes.data,
-                    summary: "" 
+                    summary: ""
                   });
                   setReportId(id);
                   setIsAnalyzing(false);
@@ -1102,26 +1103,26 @@ export default function Dashboard() {
                   <div className="lg:col-span-2 space-y-6">
                     <h3 className="text-xl font-bold font-outfit text-white">Framework Alignment (GRI, TCFD, SASB)</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                       {[
-                         { name: "GRI", data: frameworkData?.gri_alignment },
-                         { name: "TCFD", data: frameworkData?.tcfd_alignment },
-                         { name: "SASB", data: frameworkData?.sasb_alignment }
-                       ].map((fw, i) => (
-                         <div key={i} className="glass p-6 rounded-3xl border border-white/5 space-y-4">
-                            <div className="flex items-center justify-between">
-                              <span className="font-black text-emerald-500">{fw.name}</span>
-                              <span className="text-lg font-bold">{fw.data?.score || 0}%</span>
-                            </div>
-                            <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
-                              <motion.div 
-                                initial={{ width: 0 }}
-                                animate={{ width: `${fw.data?.score || 0}%` }}
-                                className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981]"
-                              />
-                            </div>
-                            <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed">{fw.data?.findings}</p>
-                         </div>
-                       ))}
+                      {[
+                        { name: "GRI", data: frameworkData?.gri_alignment },
+                        { name: "TCFD", data: frameworkData?.tcfd_alignment },
+                        { name: "SASB", data: frameworkData?.sasb_alignment }
+                      ].map((fw, i) => (
+                        <div key={i} className="glass p-6 rounded-3xl border border-white/5 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="font-black text-emerald-500">{fw.name}</span>
+                            <span className="text-lg font-bold">{fw.data?.score || 0}%</span>
+                          </div>
+                          <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${fw.data?.score || 0}%` }}
+                              className="h-full bg-emerald-500 shadow-[0_0_10px_#10b981]"
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-400 line-clamp-3 leading-relaxed">{fw.data?.findings}</p>
+                        </div>
+                      ))}
                     </div>
                     {frameworkData?.overall_audit_summary && (
                       <div className="glass p-8 rounded-[2rem] border border-white/5 bg-emerald-500/5">
@@ -1134,78 +1135,78 @@ export default function Dashboard() {
                   <div className="space-y-6">
                     <h3 className="text-xl font-bold font-outfit text-white">Predictive Risk Matrix</h3>
                     <div className="glass p-6 rounded-[2.5rem] border border-white/5 h-full flex flex-col gap-6">
-                       <div className="flex justify-between items-center px-2">
-                          <span className="text-xs uppercase tracking-widest font-black text-slate-500">Controversy Probability</span>
-                          <span className="text-2xl font-black text-rose-500">{predictionData?.controversy_likelihood || 0}%</span>
-                       </div>
-                       <div className="space-y-4">
-                          {(predictionData?.predicted_risks || []).slice(0, 3).map((risk: any, i: number) => (
-                            <div key={i} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
-                               <div className="flex justify-between">
-                                 <span className="text-[11px] font-black text-white">{risk.risk_type}</span>
-                                 <span className={cn(
-                                   "text-[9px] px-2 py-0.5 rounded-full font-bold",
-                                   risk.probability === "High" ? "bg-rose-500/20 text-rose-400" : 
-                                   risk.probability === "Medium" ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"
-                                 )}>{risk.probability} Risk</span>
-                               </div>
-                               <p className="text-[10px] text-slate-400 leading-normal">{risk.justification}</p>
+                      <div className="flex justify-between items-center px-2">
+                        <span className="text-xs uppercase tracking-widest font-black text-slate-500">Controversy Probability</span>
+                        <span className="text-2xl font-black text-rose-500">{predictionData?.controversy_likelihood || 0}%</span>
+                      </div>
+                      <div className="space-y-4">
+                        {(predictionData?.predicted_risks || []).slice(0, 3).map((risk: any, i: number) => (
+                          <div key={i} className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-[11px] font-black text-white">{risk.risk_type}</span>
+                              <span className={cn(
+                                "text-[9px] px-2 py-0.5 rounded-full font-bold",
+                                risk.probability === "High" ? "bg-rose-500/20 text-rose-400" :
+                                  risk.probability === "Medium" ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"
+                              )}>{risk.probability} Risk</span>
                             </div>
-                          ))}
-                       </div>
+                            <p className="text-[10px] text-slate-400 leading-normal">{risk.justification}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Carbon Footprint Deep Dive */}
                 <div className="space-y-6">
-                   <h3 className="text-xl font-bold font-outfit text-white">Carbon Footprint Deep Decomposition</h3>
-                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {[
-                        { label: "Scope 1 (Direct)", data: carbonAnalysisData?.breakdown?.scope1, icon: Zap },
-                        { label: "Scope 2 (Indirect Energy)", data: carbonAnalysisData?.breakdown?.scope2, icon: Activity },
-                        { label: "Scope 3 (Supply Chain)", data: carbonAnalysisData?.breakdown?.scope3, icon: Globe },
-                      ].map((scope, i) => (
-                        <div key={i} className="glass p-8 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
-                           <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                             <scope.icon className="w-12 h-12" />
-                           </div>
-                           <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">{scope.label}</p>
-                           <div className="flex items-baseline gap-2 mb-4">
-                              <span className="text-3xl font-black text-white">{scope.data?.value ? scope.data.value.toLocaleString() : "N/A"}</span>
-                              <span className="text-xs text-slate-500 font-bold">{scope.data?.unit || "tCO2e"}</span>
-                           </div>
-                           <div className="flex items-center gap-2">
-                              <span className={cn(
-                                "text-[10px] font-bold px-2 py-1 rounded-lg",
-                                scope.data?.trend?.toLowerCase().includes("reduced") ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
-                              )}>{scope.data?.trend || "Stable"}</span>
-                           </div>
+                  <h3 className="text-xl font-bold font-outfit text-white">Carbon Footprint Deep Decomposition</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[
+                      { label: "Scope 1 (Direct)", data: carbonAnalysisData?.breakdown?.scope1, icon: Zap },
+                      { label: "Scope 2 (Indirect Energy)", data: carbonAnalysisData?.breakdown?.scope2, icon: Activity },
+                      { label: "Scope 3 (Supply Chain)", data: carbonAnalysisData?.breakdown?.scope3, icon: Globe },
+                    ].map((scope, i) => (
+                      <div key={i} className="glass p-8 rounded-[2.5rem] border border-white/5 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
+                          <scope.icon className="w-12 h-12" />
                         </div>
-                      ))}
-                   </div>
-                   
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
-                         <div className="flex items-center gap-3 text-emerald-400 mb-2">
-                           <CheckCircle2 className="w-5 h-5" />
-                           <h4 className="font-bold">Net Zero Viability</h4>
-                         </div>
-                         <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.net_zero_viability}</p>
+                        <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">{scope.label}</p>
+                        <div className="flex items-baseline gap-2 mb-4">
+                          <span className="text-3xl font-black text-white">{scope.data?.value ? scope.data.value.toLocaleString() : "N/A"}</span>
+                          <span className="text-xs text-slate-500 font-bold">{scope.data?.unit || "tCO2e"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "text-[10px] font-bold px-2 py-1 rounded-lg",
+                            scope.data?.trend?.toLowerCase().includes("reduced") ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+                          )}>{scope.data?.trend || "Stable"}</span>
+                        </div>
                       </div>
-                      <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
-                         <div className="flex items-center gap-3 text-amber-400 mb-2">
-                           <AlertTriangle className="w-5 h-5" />
-                           <h4 className="font-bold">Intensity & Gap Analysis</h4>
-                         </div>
-                         <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.intensity_check}</p>
-                         <div className="flex flex-wrap gap-2">
-                           {carbonAnalysisData?.insights?.data_gaps?.map((gap: string, i: number) => (
-                             <span key={i} className="text-[9px] px-2 py-1 bg-white/5 border border-white/10 rounded-full text-slate-500">{gap}</span>
-                           ))}
-                         </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
+                      <div className="flex items-center gap-3 text-emerald-400 mb-2">
+                        <CheckCircle2 className="w-5 h-5" />
+                        <h4 className="font-bold">Net Zero Viability</h4>
                       </div>
-                   </div>
+                      <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.net_zero_viability}</p>
+                    </div>
+                    <div className="glass p-8 rounded-[2rem] border border-white/5 space-y-4">
+                      <div className="flex items-center gap-3 text-amber-400 mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        <h4 className="font-bold">Intensity & Gap Analysis</h4>
+                      </div>
+                      <p className="text-sm text-slate-400 leading-relaxed">{carbonAnalysisData?.insights?.intensity_check}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {carbonAnalysisData?.insights?.data_gaps?.map((gap: string, i: number) => (
+                          <span key={i} className="text-[9px] px-2 py-1 bg-white/5 border border-white/10 rounded-full text-slate-500">{gap}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             ) : (

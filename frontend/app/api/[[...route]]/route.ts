@@ -12,6 +12,11 @@ export const maxDuration = 60; // Increase timeout for heavy analysis
 // Config
 // ---------------------------
 const api_key = process.env.OPENAI_API_KEY;
+
+if (!api_key) {
+  console.error("OPENAI_API_KEY not found in environment variables. Please check your .env file.");
+}
+
 const client = new OpenAI({ apiKey: api_key || 'missing' });
 const GEN_MODEL = "gpt-4o";
 const EMBED_MODEL = "text-embedding-3-small";
@@ -84,7 +89,7 @@ function chunkPages(pages: string[], chunkChars = 1600, overlap = 150) {
 function claimCandidateSnippets(report_id: string, max_snippets = 30) {
   const chunks = esgIndex.chunks.filter((c) => c.reportId === report_id);
   const keywords = ["net zero", "carbon", "reduction", "scope", "target", "compliance", "verification", "verified", "diversity", "waste", "water"];
-  
+
   const scored = chunks.map((c) => {
     let score = 0;
     const t = c.text.toLowerCase();
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
       } else {
         const data = await req.formData();
         const files: File[] = data.getAll('files') as unknown as File[];
-        
+
         for (const file of files) {
           const buffer = Buffer.from(await file.arrayBuffer());
           let fullText = "";
@@ -135,7 +140,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
           if (file.name.endsWith('.pdf')) {
             const doc = await pdf(buffer);
             fullText = doc.text;
-            pagesText = [fullText]; 
+            pagesText = [fullText];
           } else {
             fullText = buffer.toString('utf-8');
             pagesText = [fullText];
@@ -143,7 +148,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
           reports_to_process.push({ name: file.name, text: fullText, pagesText });
         }
       }
-      
+
       const results = [];
       for (const item of reports_to_process) {
         const reportId = `rep_${uuidv4()}`;
@@ -244,7 +249,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ rou
         .map((c) => ({ ...c, score: dotProduct(emb, c.embedding) }))
         .sort((a, b) => b.score - a.score)
         .slice(0, 5);
-      
+
       const ctx = searchResults.map((s) => s.text).join("\n\n");
       const answer = await callOpenAIChat(`Answer the question based on this ESG context: ${ctx}. Question: ${query}`);
       return NextResponse.json({ answer, citations: searchResults });
