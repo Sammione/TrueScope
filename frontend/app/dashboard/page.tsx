@@ -27,6 +27,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import axios from "axios";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   BarChart,
   Bar,
@@ -477,7 +479,9 @@ const MetricsView = ({ metrics, risk }: any) => {
                 <div key={i} className="flex flex-col gap-1 p-3 rounded-2xl bg-white/[0.02] border border-white/5">
                   <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{item.label}</span>
                   <span className="text-xl font-black font-outfit text-white">
-                    {item.value !== null && item.value !== undefined ? item.value.toLocaleString() : "Not Disclosed"}
+                    {item.value !== null && item.value !== undefined 
+                      ? (typeof item.value === 'number' ? item.value.toLocaleString() : item.value) 
+                      : "Not Disclosed"}
                   </span>
                 </div>
               ))}
@@ -791,34 +795,124 @@ export default function Dashboard() {
   const handleExportAudit = () => {
     if (!analysisData || !claimsData) return;
 
-    let content = `# TrueScope Executive ESG Audit\n\n`;
-    content += `## Greenwashing Risk Score: ${analysisData.risk.score}\n`;
-    content += `Fluff-to-Fact Ratio: ${analysisData.risk.fluff_ratio || "N/A"}\n\n`;
-    content += `## AI Summary\n${analysisData.summary}\n\n`;
-    content += `## Claims Verification Summary\n`;
-    content += `- Total Claims: ${claimsData.summary.total_claims}\n`;
-    content += `- Supported: ${claimsData.summary.supported}\n`;
-    content += `- Weak: ${claimsData.summary.weak}\n`;
-    content += `- Unsupported/Contradictory: ${(claimsData.summary.unsupported || 0) + (claimsData.summary.contradictory || 0)}\n\n`;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
 
-    content += `## Claim Details\n`;
-    if (claimsData) {
-      claimsData.results.forEach((r: any, i: number) => {
-        content += `### Claim ${i + 1}: ${r.verdict.toUpperCase()}\n`;
-        content += `Text: "${r.claim.text}"\n`;
-        content += `Rationale: ${r.rationale}\n\n`;
-      });
+    // --- Header ---
+    doc.setFillColor(16, 185, 129); // Emerald 500
+    doc.rect(0, 0, pageWidth, 40, "F");
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("TRUESCOPE AI AUDIT", margin, 20);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("CONFIDENTIAL ESG DUE DILIGENCE REPORT", margin, 30);
+    doc.text(new Date().toLocaleDateString(), pageWidth - margin - 30, 20);
+
+    // --- Title ---
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(18);
+    doc.text(`Report: ${allReports.find(r => r.id === reportId)?.name || "Sustainability Audit"}`, margin, 55);
+
+    // --- Risk Summary Box ---
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(margin, 65, pageWidth - (margin * 2), 30, 3, 3, "FD");
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text("GREENWASHING RISK SCORE", margin + 10, 75);
+    
+    const riskScore = analysisData.risk.score || "MEDIUM";
+    const scoreColor = riskScore === "LOW" ? [16, 185, 129] : riskScore === "HIGH" ? [244, 63, 94] : [251, 191, 36];
+    doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text(riskScore, margin + 10, 85);
+    
+    doc.setTextColor(100, 116, 139);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Fluff-to-Fact Ratio: ${analysisData.risk.fluff_ratio || "N/A"}`, pageWidth - margin - 60, 85);
+
+    // --- Executive Summary ---
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Executive Summary", margin, 110);
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    const summaryLines = doc.splitTextToSize(analysisData.summary.replace(/[#*]/g, ""), pageWidth - (margin * 2));
+    doc.text(summaryLines.slice(0, 20), margin, 120); // First page summary
+
+    // --- Metrics Table ---
+    let yPos = 120 + (Math.min(summaryLines.length, 20) * 5) + 10;
+    
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Key ESG Metrics", margin, yPos);
+    yPos += 5;
+
+    const metricsData = [
+      ["Scope 1 Emissions", `${analysisData.metrics.emissions?.scope1_tco2e || "N/A"} tCO2e`],
+      ["Scope 2 Emissions", `${analysisData.metrics.emissions?.scope2_tco2e || "N/A"} tCO2e`],
+      ["Scope 3 Emissions", `${analysisData.metrics.emissions?.scope3_tco2e || "N/A"} tCO2e`],
+      ["Total Energy", `${analysisData.metrics.energy?.total_mwh || "N/A"} MWh`],
+      ["Board Diversity", `${analysisData.metrics.governance?.board_female_pct || "N/A"}% Female`],
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [["Metric", "Value"]],
+      body: metricsData,
+      theme: "striped",
+      headStyles: { fillColor: [16, 185, 129] },
+      margin: { left: margin, right: margin }
+    });
+
+    // --- Claims Verification (New Page) ---
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Claims Verification Analysis", margin, 20);
+
+    const claimsTableData = claimsData.results.map((r: any) => [
+      r.claim.text,
+      r.verdict.toUpperCase(),
+      `${(r.confidence * 100).toFixed(0)}%`,
+      r.rationale.substring(0, 100) + "..."
+    ]);
+
+    autoTable(doc, {
+      startY: 25,
+      head: [["Claim", "Verdict", "Conf.", "Rationale"]],
+      body: claimsTableData,
+      theme: "grid",
+      headStyles: { fillColor: [15, 23, 42] },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 25 },
+        2: { cellWidth: 15 },
+        3: { cellWidth: 'auto' }
+      },
+      margin: { left: margin, right: margin }
+    });
+
+    // --- Footer ---
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(`TrueScope AI - Page ${i} of ${totalPages}`, pageWidth / 2, doc.internal.pageSize.getHeight() - 10, { align: "center" });
     }
 
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `ESG_Audit_${reportId}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    doc.save(`TrueScope_Audit_${reportId}.pdf`);
   };
 
   const triggerUpload = () => fileInputRef.current?.click();
@@ -1173,7 +1267,11 @@ export default function Dashboard() {
                         </div>
                         <p className="text-[10px] uppercase tracking-widest font-bold text-slate-500 mb-2">{scope.label}</p>
                         <div className="flex items-baseline gap-2 mb-4">
-                          <span className="text-3xl font-black text-white">{scope.data?.value ? scope.data.value.toLocaleString() : "N/A"}</span>
+                          <span className="text-3xl font-black text-white">
+                            {scope.data?.value 
+                              ? (typeof scope.data.value === 'number' ? scope.data.value.toLocaleString() : scope.data.value) 
+                              : "N/A"}
+                          </span>
                           <span className="text-xs text-slate-500 font-bold">{scope.data?.unit || "tCO2e"}</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -1237,7 +1335,7 @@ export default function Dashboard() {
                     </button>
                     <button onClick={handleExportAudit} className="flex items-center gap-2 px-6 py-3.5 rounded-full bg-emerald-500 text-black text-sm font-bold hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
                       <FileText className="w-4 h-4" />
-                      Export Report
+                      Export PDF Audit
                     </button>
                   </div>
                 </header>
@@ -1304,7 +1402,11 @@ export default function Dashboard() {
                       ].map((metric, i) => (
                         <div key={i} className="bg-white/5 rounded-2xl p-4 border border-white/5 flex flex-col gap-2">
                           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{metric.label}</span>
-                          <span className="text-xl md:text-2xl font-black font-outfit text-white">{metric.value ? metric.value.toLocaleString() : "N/A"}</span>
+                          <span className="text-xl md:text-2xl font-black font-outfit text-white">
+                            {metric.value 
+                              ? (typeof metric.value === 'number' ? metric.value.toLocaleString() : metric.value) 
+                              : "N/A"}
+                          </span>
                         </div>
                       ))}
                     </div>

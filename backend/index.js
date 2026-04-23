@@ -192,7 +192,7 @@ class ESGIndex {
 
   async search(query, topK = 8, reportIds = null) {
     if (!this.chunks.length) return [];
-    
+
     const queryEmbedding = await this.embedText(query);
     const allowedReports = reportIds ? new Set(reportIds) : null;
 
@@ -256,70 +256,70 @@ class EvidenceIndex {
   chunkPages(pages, chunkSize = 900, overlap = 120) {
     const chunks = [];
     for (let i = 0; i < pages.length; i++) {
-       const text = (pages[i] || "").trim();
-       if (!text) continue;
-       const pageNo = i + 1;
-       let start = 0;
-       const n = text.length;
-       while (start < n) {
-          const end = Math.min(n, start + chunkSize);
-          const chunk = text.substring(start, end).trim();
-          if (chunk) {
-            chunks.push({ text: chunk, page: pageNo });
-          }
-          if (end === n) break;
-          start = end - overlap;
-       }
+      const text = (pages[i] || "").trim();
+      if (!text) continue;
+      const pageNo = i + 1;
+      let start = 0;
+      const n = text.length;
+      while (start < n) {
+        const end = Math.min(n, start + chunkSize);
+        const chunk = text.substring(start, end).trim();
+        if (chunk) {
+          chunks.push({ text: chunk, page: pageNo });
+        }
+        if (end === n) break;
+        start = end - overlap;
+      }
     }
     return chunks;
   }
 
   async addDoc(title, sourceType, content, pagesText = null, url = null) {
-     const docId = `ev_${Object.keys(this.docs).length + 1}_${Date.now()}`;
-     const pages = pagesText !== null ? pagesText : [content];
-     const chunksWithPages = this.chunkPages(pages);
-     if (!chunksWithPages.length) {
-       throw new Error("No text chunks extracted from evidence");
-     }
+    const docId = `ev_${Object.keys(this.docs).length + 1}_${Date.now()}`;
+    const pages = pagesText !== null ? pagesText : [content];
+    const chunksWithPages = this.chunkPages(pages);
+    if (!chunksWithPages.length) {
+      throw new Error("No text chunks extracted from evidence");
+    }
 
-     const texts = chunksWithPages.map(c => c.text);
-     const embeddings = await this.embedTexts(texts);
-     
-     const baseIdx = this.docChunks.length;
-     chunksWithPages.forEach((item, j) => {
-        this.docChunks.push({
-          docId,
-          chunkIndex: baseIdx + j,
-          page: item.page,
-          text: item.text,
-          sourceType,
-          title,
-          url,
-          embedding: embeddings[j]
-        });
-     });
+    const texts = chunksWithPages.map(c => c.text);
+    const embeddings = await this.embedTexts(texts);
 
-     this.docs[docId] = {
-       docId,
-       title,
-       sourceType,
-       url,
-       chunks: chunksWithPages.length,
-       createdAt: new Date().toISOString()
-     };
-     return this.docs[docId];
+    const baseIdx = this.docChunks.length;
+    chunksWithPages.forEach((item, j) => {
+      this.docChunks.push({
+        docId,
+        chunkIndex: baseIdx + j,
+        page: item.page,
+        text: item.text,
+        sourceType,
+        title,
+        url,
+        embedding: embeddings[j]
+      });
+    });
+
+    this.docs[docId] = {
+      docId,
+      title,
+      sourceType,
+      url,
+      chunks: chunksWithPages.length,
+      createdAt: new Date().toISOString()
+    };
+    return this.docs[docId];
   }
 
   async search(query, topK = 6) {
     if (!this.docChunks.length) return [];
-    
+
     try {
       const response = await client.embeddings.create({
         input: [query.replace(/\n/g, " ")],
         model: EMBED_MODEL
       });
       const queryEmbedding = l2Normalize(response.data[0].embedding);
-      
+
       const scored = this.docChunks.map(chunk => ({
         ...chunk,
         score: dotProduct(queryEmbedding, chunk.embedding)
@@ -350,7 +350,7 @@ function claimCandidateSnippets(report, esgIndex, maxSnippets = 24) {
   ];
   const reportId = report.id;
   const chunks = esgIndex.chunks.filter(c => c.reportId === reportId);
-  
+
   const scored = chunks.map(c => {
     const t = (c.text || "").toLowerCase();
     let score = 0;
@@ -373,7 +373,7 @@ function claimCandidateSnippets(report, esgIndex, maxSnippets = 24) {
 function calculateFluffRatio(context) {
   const fluffWords = ["striving", "conscious", "journey", "committed", "commitment", "revolutionary", "vision", "philosophy", "belief", "beliefs", "hope", "aim", "aiming", "dedicated", "passion", "passionate", "pioneer", "pioneering", "innovative", "leading", "world-class", "transformative", "believe"];
   const text = context.toLowerCase();
-  
+
   let fluffCount = 0;
   fluffWords.forEach(word => {
     const matches = text.match(new RegExp(word, 'g'));
@@ -382,10 +382,10 @@ function calculateFluffRatio(context) {
 
   const factMatches = text.match(/\b\d{1,3}(?:\.\d+)?\s?%|\b\$\d+|\b\d{2,4}\b|tco2e|mwh|kwh|tonnes/g);
   const factCount = factMatches ? factMatches.length : 0;
-  
+
   const total = fluffCount + factCount;
   if (total === 0) return "0% Fluff / 0% Fact";
-  
+
   const fluffPct = Math.round((fluffCount / total) * 100);
   const factPct = 100 - fluffPct;
   return `${fluffPct}% Fluff / ${factPct}% Fact`;
@@ -406,7 +406,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(morgan('dev'));
 
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB
 });
@@ -432,9 +432,9 @@ async function fetchLiveNews(companyName) {
   // Since we don't have a direct Node port of DDGS, we'll try a simplified web search if possible
   // or return an empty string if it's too complex for this demo.
   try {
-     // You could use NewsAPI.org or similar here. 
-     // For this exact functionality, we'll try a public search endpoint if available.
-     return ""; 
+    // You could use NewsAPI.org or similar here. 
+    // For this exact functionality, we'll try a public search endpoint if available.
+    return "";
   } catch (e) {
     return "";
   }
@@ -445,48 +445,48 @@ app.post("/api/reports", upload.array('files'), async (req, res) => {
   let reports_to_process = [];
 
   if (isJson) {
-      if (req.body.text) {
-          reports_to_process = [{ 
-              name: req.body.name || "Extracted Report", 
-              text: req.body.text, 
-              pagesText: [req.body.text] 
-          }];
-      }
+    if (req.body.text) {
+      reports_to_process = [{
+        name: req.body.name || "Extracted Report",
+        text: req.body.text,
+        pagesText: [req.body.text]
+      }];
+    }
   } else {
-      if (!req.files || req.files.length === 0) {
-          return res.status(400).json({ detail: "No files uploaded" });
-      }
-      // Handle files (as it was)
-      for (const file of req.files) {
-          const name = file.originalname;
-          const contentBuffer = file.buffer;
-          let pages = [];
-          let fullText = "";
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ detail: "No files uploaded" });
+    }
+    // Handle files (as it was)
+    for (const file of req.files) {
+      const name = file.originalname;
+      const contentBuffer = file.buffer;
+      let pages = [];
+      let fullText = "";
 
-          if (name.toLowerCase().endsWith(".pdf")) {
-              const data = await pdf(contentBuffer);
-              fullText = data.text;
-              pages = [fullText];
-          } else {
-              fullText = contentBuffer.toString('utf-8');
-              pages = [fullText];
-          }
-          reports_to_process.push({ name, text: fullText, pagesText: pages });
+      if (name.toLowerCase().endsWith(".pdf")) {
+        const data = await pdf(contentBuffer);
+        fullText = data.text;
+        pages = [fullText];
+      } else {
+        fullText = contentBuffer.toString('utf-8');
+        pages = [fullText];
       }
+      reports_to_process.push({ name, text: fullText, pagesText: pages });
+    }
   }
 
   if (reports_to_process.length === 0) {
-      return res.status(400).json({ detail: "No reports or text content found" });
+    return res.status(400).json({ detail: "No reports or text content found" });
   }
 
   const processedReports = [];
   for (const item of reports_to_process) {
-      try {
-          const reportMeta = await esgIndex.addReport(item.name, item.text, item.pagesText);
-          processedReports.push(reportMeta);
-      } catch (e) {
-          console.error(`Failed to process ${item.name}:`, e);
-      }
+    try {
+      const reportMeta = await esgIndex.addReport(item.name, item.text, item.pagesText);
+      processedReports.push(reportMeta);
+    } catch (e) {
+      console.error(`Failed to process ${item.name}:`, e);
+    }
   }
 
   res.json({ reports: esgIndex.listReports() });
@@ -526,11 +526,11 @@ app.post("/api/query", async (req, res) => {
     });
   }
 
-  const contextLines = searchResults.map((item, i) => 
-    `[${i+1}] (Report: ${item.reportName}, page ${item.page})\n${item.text}`
+  const contextLines = searchResults.map((item, i) =>
+    `[${i + 1}] (Report: ${item.reportName}, page ${item.page})\n${item.text}`
   );
   const citations = searchResults.map((item, i) => ({
-    id: `c${i+1}`,
+    id: `c${i + 1}`,
     report_id: item.reportId,
     report_name: item.reportName,
     page: item.page,
@@ -777,7 +777,7 @@ ${snippets}`;
   const raw = await callOpenAIChat(prompt, true);
   const data = parseStrictJson(raw);
   const claims = (data?.claims || []).slice(0, max_claims);
-  claims.forEach((c, i) => { if (!c.claim_id) c.claim_id = `c${i+1}`; });
+  claims.forEach((c, i) => { if (!c.claim_id) c.claim_id = `c${i + 1}`; });
   res.json({ report_id, claims });
 });
 
@@ -802,8 +802,8 @@ app.post("/api/claims/verify", async (req, res) => {
       ...extHits.map(h => ({ source: h.sourceType, page: h.page, title: h.title, url: h.url, snippet: h.text.substring(0, 900) }))
     ];
 
-    const evidenceText = evidenceBlocks.map((b, i) => 
-      `- [${i+1}] (${b.source}) ${b.page ? 'page ' + b.page : ''} ${b.title}: ${b.snippet}`
+    const evidenceText = evidenceBlocks.map((b, i) =>
+      `- [${i + 1}] (${b.source}) ${b.page ? 'page ' + b.page : ''} ${b.title}: ${b.snippet}`
     ).join("\n\n");
 
     const prompt = `You are an ESG claim verifier. Given a CLAIM and EVIDENCE SNIPPETS, decide whether the claim is supported. Return ONLY valid JSON.
@@ -824,7 +824,7 @@ ${evidenceText}`;
 
   const counts = { supported: 0, weak: 0, unsupported: 0, contradictory: 0 };
   results.forEach(r => { if (counts[r.verdict] !== undefined) counts[r.verdict]++; });
-  
+
   const total = Math.max(1, results.length);
   const score = Math.max(0, Math.min(1, (counts.weak * 0.5 + counts.unsupported * 1.0 + counts.contradictory * 1.2) / total));
 
