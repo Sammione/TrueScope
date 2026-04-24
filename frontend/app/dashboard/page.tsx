@@ -1409,6 +1409,22 @@ export default function Dashboard() {
                     </div>
                   </BentoCard>
 
+                  </BentoCard>
+
+                  {/* AI Executive Summary Card */}
+                  <BentoCard title="AI Audit Summary" className="md:col-span-6 lg:col-span-4" icon={FileText} delay={0.4}>
+                    <div className="prose prose-invert max-w-none">
+                      <div className="bg-white/5 rounded-3xl p-8 border border-white/5 text-slate-300 leading-relaxed text-sm">
+                        {analysisData.summary.split('\n').map((line: string, i: number) => {
+                          if (line.startsWith('##')) return <h3 key={i} className="text-xl font-bold text-white mt-6 mb-3 font-outfit">{line.replace('##', '').trim()}</h3>;
+                          if (line.startsWith('###')) return <h4 key={i} className="text-lg font-bold text-emerald-400 mt-4 mb-2">{line.replace('###', '').trim()}</h4>;
+                          if (line.startsWith('-')) return <li key={i} className="ml-4 list-disc mb-1">{line.replace('-', '').trim()}</li>;
+                          return <p key={i} className="mb-3">{line}</p>;
+                        })}
+                      </div>
+                    </div>
+                  </BentoCard>
+
                   {/* AI Insights / Key Metrics */}
                   <BentoCard title="Key Metrics Extracted" className="md:col-span-6 lg:col-span-4" icon={Activity} delay={0.4}>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
