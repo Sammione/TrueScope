@@ -890,7 +890,7 @@ export default function Dashboard() {
     // --- Claims Verification ---
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("Verified Claims Analysis", margin, doc.lastAutoTable.finalY + 15);
+    doc.text("Verified Claims Analysis", margin, (doc as any).lastAutoTable.finalY + 15);
 
     const claimsTableData = claimsData.results.map((r: any) => [
       r.claim.text,
@@ -899,7 +899,7 @@ export default function Dashboard() {
     ]);
 
     autoTable(doc, {
-      startY: doc.lastAutoTable.finalY + 20,
+      startY: (doc as any).lastAutoTable.finalY + 20,
       head: [["Reported Claim", "Verdict", "AI Rationale & Evidence"]],
       body: claimsTableData,
       theme: "grid",
@@ -920,7 +920,7 @@ export default function Dashboard() {
     });
 
     // Footer
-    const totalPages = doc.internal.getNumberOfPages();
+    const totalPages = doc.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
@@ -1409,7 +1409,6 @@ export default function Dashboard() {
                     </div>
                   </BentoCard>
 
-                  </BentoCard>
 
                   {/* AI Executive Summary Card */}
                   <BentoCard title="AI Audit Summary" className="md:col-span-6 lg:col-span-4" icon={FileText} delay={0.4}>
