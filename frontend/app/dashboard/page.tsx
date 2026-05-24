@@ -618,51 +618,73 @@ export default function Dashboard() {
   const runAnalysisFlow = async (newReportId: string) => {
     let currentStep = "Generating Risk & ESG Metrics";
     try {
-      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
+      // Use Promise.allSettled so one failing call doesn't kill the entire analysis
+      const [riskResult, metricsResult, complianceResult, summaryResult] = await Promise.allSettled([
         axios.post(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
         axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
         axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
         axios.post(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
-      setAnalysisData({
-        risk: riskRes.data,
-        metrics: metricsRes.data.metrics || metricsRes.data,
-        compliance: complianceRes.data.compliance || complianceRes.data,
-        summary: summaryRes.data.summary_md || summaryRes.data.summary || ""
+      const riskData = riskResult.status === "fulfilled" ? riskResult.value.data : null;
+      const metricsData = metricsResult.status === "fulfilled" ? metricsResult.value.data : null;
+      const complianceData = complianceResult.status === "fulfilled" ? complianceResult.value.data : null;
+      const summaryData = summaryResult.status === "fulfilled" ? summaryResult.value.data : null;
+
+      // Log any partial failures for debugging
+      [riskResult, metricsResult, complianceResult, summaryResult].forEach((r, i) => {
+        if (r.status === "rejected") {
+          const names = ["risk", "metrics", "compliance", "summary"];
+          console.warn(`API call /api/${names[i]} failed:`, r.reason?.response?.data || r.reason?.message || r.reason);
+        }
       });
 
-      // Step 2.5: Run Enterprise Analysis (SEQUENTIAL for stability)
-      currentStep = "Enterprise Audit: Frameworks";
-      const frameworkRes = await axios.post<any>(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 });
-      setFrameworkData(frameworkRes.data);
+      setAnalysisData({
+        risk: riskData,
+        metrics: metricsData?.metrics || metricsData,
+        compliance: complianceData?.compliance || complianceData,
+        summary: summaryData?.summary_md || summaryData?.summary || ""
+      });
 
-      currentStep = "Enterprise Audit: Risk Forecast";
-      const predictionRes = await axios.post<any>(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 });
-      setPredictionData(predictionRes.data);
+      // Step 2.5: Run Enterprise Analysis with graceful degradation
+      currentStep = "Enterprise Audit";
+      const [frameworkResult, predictionResult, carbonResult] = await Promise.allSettled([
+        axios.post<any>(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<any>(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post<any>(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
+      ]);
 
-      currentStep = "Enterprise Audit: Carbon Analysis";
-      const carbonRes = await axios.post<any>(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 });
-      setCarbonAnalysisData(carbonRes.data);
+      if (frameworkResult.status === "fulfilled") setFrameworkData(frameworkResult.value.data);
+      if (predictionResult.status === "fulfilled") setPredictionData(predictionResult.value.data);
+      if (carbonResult.status === "fulfilled") setCarbonAnalysisData(carbonResult.value.data);
 
+      // Step 3: Claims extraction & verification (wrapped separately)
       currentStep = "Verifying Analysis Claims";
-      setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
-      const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
-        report_id: newReportId,
-        claims: claimsExtract.data.claims,
-        include_external_evidence: true
-      }, { timeout: 180000 });
+      try {
+        setIsVerifyingClaims(true);
+        const claimsExtract = await axios.post(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+        const claimsVerify = await axios.post(`${API_URL}/api/claims/verify`, {
+          report_id: newReportId,
+          claims: claimsExtract.data.claims,
+          include_external_evidence: true
+        }, { timeout: 180000 });
+        setClaimsData(claimsVerify.data);
+      } catch (claimsErr: any) {
+        console.warn("Claims verification failed (non-fatal):", claimsErr?.response?.data || claimsErr?.message);
+      }
 
-      setClaimsData(claimsVerify.data);
       await fetchReports();
       setIsVerifyingClaims(false);
       setIsAnalyzing(false);
       setActiveTab("dashboard");
-    } catch (err) {
-      console.error(err);
-      alert(`Analysis failed at step: [${currentStep}]`);
+    } catch (err: any) {
+      console.error(`Error during ${currentStep}:`, err);
+      const detail = err.response?.data?.detail
+        ? JSON.stringify(err.response.data.detail)
+        : (err.response?.data ? JSON.stringify(err.response.data) : err.message);
+      alert(`Analysis failed at step: [${currentStep}].\n\nError: ${detail}`);
       setIsAnalyzing(false);
+      setIsVerifyingClaims(false);
     }
   };
 
@@ -684,48 +706,62 @@ export default function Dashboard() {
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      // Step 2: Run Analysis in Parallel
+      // Step 2: Run Analysis with resilience (Promise.allSettled)
       currentStep = "Generating Risk & ESG Metrics";
-      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
-        axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
-        axios.post<{ summary_md: string }>(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
+      const [riskResult, metricsResult, complianceResult, summaryResult] = await Promise.allSettled([
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }, { timeout: 120000 }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
-      setAnalysisData({
-        risk: riskRes.data.risk,
-        metrics: metricsRes.data.metrics,
-        compliance: complianceRes.data.compliance,
-        summary: summaryRes.data.summary_md
+      const riskData = riskResult.status === "fulfilled" ? riskResult.value.data : null;
+      const metricsData = metricsResult.status === "fulfilled" ? metricsResult.value.data : null;
+      const complianceData = complianceResult.status === "fulfilled" ? complianceResult.value.data : null;
+      const summaryData = summaryResult.status === "fulfilled" ? summaryResult.value.data : null;
+
+      // Log partial failures
+      [riskResult, metricsResult, complianceResult, summaryResult].forEach((r, i) => {
+        if (r.status === "rejected") {
+          const names = ["risk", "metrics", "compliance", "summary"];
+          console.warn(`API call /api/${names[i]} failed:`, r.reason?.response?.data || r.reason?.message || r.reason);
+        }
       });
 
-      // Step 2.5: Run Enterprise Analysis
+      setAnalysisData({
+        risk: riskData,
+        metrics: metricsData?.metrics || metricsData,
+        compliance: complianceData?.compliance || complianceData,
+        summary: summaryData?.summary_md || summaryData?.summary || ""
+      });
+
+      // Step 2.5: Run Enterprise Analysis with graceful degradation
       currentStep = "Deep Enterprise Auditing";
-      const [frameworkRes, predictionRes, carbonRes] = await Promise.all([
+      const [frameworkResult, predictionResult, carbonResult] = await Promise.allSettled([
         axios.post<any>(`${API_URL}/api/frameworks`, { report_id: newReportId }, { timeout: 120000 }),
         axios.post<any>(`${API_URL}/api/risk/predict`, { report_id: newReportId }, { timeout: 120000 }),
         axios.post<any>(`${API_URL}/api/carbon/analysis`, { report_id: newReportId }, { timeout: 120000 })
       ]);
 
-      setFrameworkData(frameworkRes.data);
-      setPredictionData(predictionRes.data);
-      setCarbonAnalysisData(carbonRes.data);
+      if (frameworkResult.status === "fulfilled") setFrameworkData(frameworkResult.value.data);
+      if (predictionResult.status === "fulfilled") setPredictionData(predictionResult.value.data);
+      if (carbonResult.status === "fulfilled") setCarbonAnalysisData(carbonResult.value.data);
 
-      // Step 3: Extract Claims
-      currentStep = "Extracting Analysis Claims";
-      setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+      // Step 3: Claims extraction & verification (non-fatal)
+      currentStep = "Extracting & Verifying Claims";
+      try {
+        setIsVerifyingClaims(true);
+        const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 12 }, { timeout: 120000 });
+        const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
+          report_id: newReportId,
+          claims: claimsExtract.data.claims,
+          include_external_evidence: true
+        }, { timeout: 180000 });
+        setClaimsData(claimsVerify.data);
+      } catch (claimsErr: any) {
+        console.warn("Claims verification failed (non-fatal):", claimsErr?.response?.data || claimsErr?.message);
+      }
 
-      // Step 4: Verify Claims
-      currentStep = "Verifying Claims Against Evidence";
-      const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
-        report_id: newReportId,
-        claims: claimsExtract.data.claims,
-        include_external_evidence: true
-      }, { timeout: 180000 }); // Verification is heaviest, give it 3 min
-
-      setClaimsData(claimsVerify.data);
       await fetchReports();
       setIsVerifyingClaims(false);
 
@@ -758,35 +794,40 @@ export default function Dashboard() {
       setIsUploading(false);
       setIsAnalyzing(true);
 
-      const [riskRes, metricsRes, complianceRes, summaryRes] = await Promise.all([
-        axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: newReportId }),
-        axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: newReportId }),
-        axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: newReportId }),
-        axios.post<{ summary_md: string }>(`${API_URL}/api/summary`, { report_id: newReportId })
+      const [riskResult, metricsResult, complianceResult, summaryResult] = await Promise.allSettled([
+        axios.post(`${API_URL}/api/risk`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/metrics`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/compliance`, { report_id: newReportId }),
+        axios.post(`${API_URL}/api/summary`, { report_id: newReportId })
       ]);
 
       setAnalysisData({
-        risk: riskRes.data.risk,
-        metrics: metricsRes.data.metrics,
-        compliance: complianceRes.data.compliance,
-        summary: summaryRes.data.summary_md
+        risk: riskResult.status === "fulfilled" ? riskResult.value.data : null,
+        metrics: metricsResult.status === "fulfilled" ? (metricsResult.value.data.metrics || metricsResult.value.data) : null,
+        compliance: complianceResult.status === "fulfilled" ? (complianceResult.value.data.compliance || complianceResult.value.data) : null,
+        summary: summaryResult.status === "fulfilled" ? (summaryResult.value.data.summary_md || "") : ""
       });
 
       // Claims for sample
-      setIsVerifyingClaims(true);
-      const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 8 });
-      const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
-        report_id: newReportId,
-        claims: claimsExtract.data.claims,
-        include_external_evidence: false
-      });
-      setClaimsData(claimsVerify.data);
+      try {
+        setIsVerifyingClaims(true);
+        const claimsExtract = await axios.post<{ claims: any[] }>(`${API_URL}/api/claims/extract`, { report_id: newReportId, max_claims: 8 });
+        const claimsVerify = await axios.post<any>(`${API_URL}/api/claims/verify`, {
+          report_id: newReportId,
+          claims: claimsExtract.data.claims,
+          include_external_evidence: false
+        });
+        setClaimsData(claimsVerify.data);
+      } catch (claimsErr: any) {
+        console.warn("Claims verification failed (non-fatal):", claimsErr?.response?.data || claimsErr?.message);
+      }
       await fetchReports();
       setIsVerifyingClaims(false);
 
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert("Failed to load sample report.");
+      const detail = e.response?.data?.detail || e.message || "Unknown error";
+      alert(`Failed to load sample report.\n\nError: ${detail}`);
     } finally {
       setIsAnalyzing(false);
       setIsVerifyingClaims(false);
@@ -826,7 +867,7 @@ export default function Dashboard() {
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     doc.text("GREENWASHING RISK", margin + 5, 78);
-    const riskScore = analysisData.risk.score || "MEDIUM";
+    const riskScore = analysisData.risk?.score || "MEDIUM";
     const scoreColor = riskScore === "LOW" ? [16, 185, 129] : riskScore === "HIGH" ? [244, 63, 94] : [251, 191, 36];
     doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
     doc.setFontSize(16);
@@ -839,7 +880,7 @@ export default function Dashboard() {
     doc.text("FLUFF-TO-FACT RATIO", (pageWidth / 2) + 10, 78);
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(16);
-    doc.text(analysisData.risk.fluff_ratio || "4% / 96%", (pageWidth / 2) + 10, 90);
+    doc.text(analysisData.risk?.fluff_ratio || "4% / 96%", (pageWidth / 2) + 10, 90);
 
     // --- Visual Data (Graphs) ---
     doc.setFontSize(14);
@@ -869,19 +910,19 @@ export default function Dashboard() {
     doc.setFont("helvetica", "bold");
     doc.text("Environmental & Social Performance Data", margin, 20);
 
-    const metricsData = [
-      ["Scope 1 Direct Emissions", `${analysisData.metrics.emissions?.scope1_tco2e || "7,021"} tCO2e`],
-      ["Scope 2 Indirect Emissions", `${analysisData.metrics.emissions?.scope2_tco2e || "6,314"} tCO2e`],
-      ["Total Energy Consumption", `${analysisData.metrics.energy?.total_mwh || "68,559"} MWh`],
+    const metricsTableData = [
+      ["Scope 1 Direct Emissions", `${analysisData.metrics?.emissions?.scope1_tco2e || "7,021"} tCO2e`],
+      ["Scope 2 Indirect Emissions", `${analysisData.metrics?.emissions?.scope2_tco2e || "6,314"} tCO2e`],
+      ["Total Energy Consumption", `${analysisData.metrics?.energy?.total_mwh || "68,559"} MWh`],
       ["Renewable Electricity", "100% (UK/USA/PL)"],
-      ["Water Consumption", `${analysisData.metrics.water?.withdrawals_m3 || "58.8k"} m3`],
-      ["Waste Recycling Rate", `${analysisData.metrics.waste?.recycling_pct || "50"}%`],
+      ["Water Consumption", `${analysisData.metrics?.water?.withdrawals_m3 || "58.8k"} m3`],
+      ["Waste Recycling Rate", `${analysisData.metrics?.waste?.recycling_pct || "50"}%`],
     ];
 
     autoTable(doc, {
       startY: 25,
       head: [["Performance Metric", "Observed Value"]],
-      body: metricsData,
+      body: metricsTableData,
       theme: "striped",
       headStyles: { fillColor: [16, 185, 129] },
       margin: { left: margin, right: margin }
@@ -1125,19 +1166,25 @@ export default function Dashboard() {
                 onSelect={async (id: any) => {
                   setIsAnalyzing(true);
                   setActiveTab("dashboard");
-                  const [riskRes, metricsRes, complianceRes] = await Promise.all([
-                    axios.post<{ risk: any }>(`${API_URL}/api/risk`, { report_id: id }),
-                    axios.post<{ metrics: any }>(`${API_URL}/api/metrics`, { report_id: id }),
-                    axios.post<{ compliance: any }>(`${API_URL}/api/compliance`, { report_id: id })
-                  ]);
-                  setAnalysisData({
-                    risk: riskRes.data,
-                    metrics: metricsRes.data.metrics || metricsRes.data,
-                    compliance: complianceRes.data.compliance || complianceRes.data,
-                    summary: ""
-                  });
-                  setReportId(id);
-                  setIsAnalyzing(false);
+                  try {
+                    const [riskResult, metricsResult, complianceResult] = await Promise.allSettled([
+                      axios.post(`${API_URL}/api/risk`, { report_id: id }),
+                      axios.post(`${API_URL}/api/metrics`, { report_id: id }),
+                      axios.post(`${API_URL}/api/compliance`, { report_id: id })
+                    ]);
+                    setAnalysisData({
+                      risk: riskResult.status === "fulfilled" ? riskResult.value.data : null,
+                      metrics: metricsResult.status === "fulfilled" ? (metricsResult.value.data.metrics || metricsResult.value.data) : null,
+                      compliance: complianceResult.status === "fulfilled" ? (complianceResult.value.data.compliance || complianceResult.value.data) : null,
+                      summary: ""
+                    });
+                    setReportId(id);
+                  } catch (e: any) {
+                    console.error("Failed to load report:", e);
+                    alert(`Failed to open report analysis.\n\nError: ${e.message}`);
+                  } finally {
+                    setIsAnalyzing(false);
+                  }
                 }}
               />
             </motion.div>
@@ -1362,22 +1409,22 @@ export default function Dashboard() {
                   {/* Risk Gauge */}
                   <BentoCard title="Greenwashing Risk" className="md:col-span-3 lg:col-span-1" icon={AlertTriangle} delay={0.1}>
                     <div className="flex flex-col items-center justify-center h-full gap-4">
-                      <RiskGauge score={analysisData.risk.score} />
+                      <RiskGauge score={analysisData.risk?.score || "N/A"} />
                       <p className="text-[11px] text-center text-slate-500 leading-relaxed font-medium px-4 line-clamp-3">
-                        {analysisData.risk.explanation}
+                        {analysisData.risk?.explanation || "Risk data not available."}
                       </p>
                     </div>
-                    <FluffGauge fluffRatio={analysisData.risk.fluff_ratio} />
+                    <FluffGauge fluffRatio={analysisData.risk?.fluff_ratio} />
                   </BentoCard>
 
                   {/* ESG Radar Chart */}
                   <BentoCard title="ESG Integrity Profile" className="md:col-span-3 lg:col-span-1" icon={Globe} delay={0.2}>
                     <div id="pdf-radar-chart">
                       <ESGRadarChart data={{
-                        e: analysisData.metrics.emissions ? 80 : 30,
-                        s: analysisData.metrics.social ? 70 : 40,
-                        g: analysisData.metrics.governance ? 90 : 50,
-                        transparency: analysisData.compliance.gri?.covered ? 85 : 40,
+                        e: analysisData.metrics?.emissions ? 80 : 30,
+                        s: analysisData.metrics?.social ? 70 : 40,
+                        g: analysisData.metrics?.governance ? 90 : 50,
+                        transparency: analysisData.compliance?.gri?.covered ? 85 : 40,
                         verification: claimsData?.summary?.supported > 0 ? 75 : 30
                       }} />
                     </div>
@@ -1428,10 +1475,10 @@ export default function Dashboard() {
                   <BentoCard title="Key Metrics Extracted" className="md:col-span-6 lg:col-span-4" icon={Activity} delay={0.4}>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       {[
-                        { label: "Energy (MWh)", value: analysisData.metrics.energy?.total_mwh || "N/A" },
-                        { label: "Water (m³)", value: analysisData.metrics.water?.withdrawals_m3 || "N/A" },
-                        { label: "Waste (Tonnes)", value: analysisData.metrics.waste?.total_tonnes || "N/A" },
-                        { label: "Board Diversity", value: analysisData.metrics.governance?.board_female_pct ? `${analysisData.metrics.governance.board_female_pct}%` : "N/A" },
+                        { label: "Energy (MWh)", value: analysisData.metrics?.energy?.total_mwh || "N/A" },
+                        { label: "Water (m³)", value: analysisData.metrics?.water?.withdrawals_m3 || "N/A" },
+                        { label: "Waste (Tonnes)", value: analysisData.metrics?.waste?.total_tonnes || "N/A" },
+                        { label: "Board Diversity", value: analysisData.metrics?.governance?.board_female_pct ? `${analysisData.metrics.governance.board_female_pct}%` : "N/A" },
                       ].map((metric, i) => (
                         <div key={i} className="bg-white/5 rounded-2xl p-4 border border-white/5 flex flex-col gap-2">
                           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">{metric.label}</span>
